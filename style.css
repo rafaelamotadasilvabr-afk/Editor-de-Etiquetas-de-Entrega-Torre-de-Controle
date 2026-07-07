@@ -1,0 +1,26 @@
+*{box-sizing:border-box}
+:root{--dark:#08111f;--line:#d8dde3;--muted:#667085;--blue:#1d6fe8;--green:#13a85b}
+body{margin:0;background:#f4f6f8;color:#111;font-family:Arial,Helvetica,sans-serif}
+.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--dark);color:#fff;padding:10px 18px;box-shadow:0 3px 14px rgba(0,0,0,.18)}
+.brand{display:flex;gap:12px;align-items:center}.brand img{width:150px;max-height:42px;object-fit:contain}.brand h1{font-size:19px;margin:0}.brand p{font-size:12px;line-height:1.25;margin:2px 0 0;color:#d4dce7}.topActions{display:flex;gap:8px;align-items:center}
+.app{height:calc(100vh - 62px);display:grid;grid-template-columns:minmax(360px,430px) 1fr;gap:14px;padding:14px;overflow:hidden}.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:auto}.panelHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px}.panelHead strong{font-size:15px}.panelHead span{font-size:11px;color:var(--muted)}.spaceTop{margin-top:18px;border-top:1px solid #edf0f3;padding-top:14px}.upload{display:flex;align-items:center;justify-content:center;border:2px dashed #151515;border-radius:8px;padding:14px;margin-top:10px;cursor:pointer;font-weight:700;background:#fafafa}.upload input{display:none}label{display:block;font-size:12px;font-weight:700;margin:10px 0 0}input{width:100%;border:1px solid #cbd3dc;border-radius:7px;padding:10px 9px;margin-top:5px;font-size:14px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.check{display:flex;gap:8px;align-items:center;font-weight:600}.check input{width:auto;margin:0}details{margin-top:14px;border:1px solid var(--line);border-radius:9px;padding:10px;background:#fafafa}summary{cursor:pointer;font-weight:700}.hint{font-size:12px;color:var(--muted);line-height:1.35;margin:7px 0 8px}.positions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.positions label{font-size:10.5px;margin-top:6px}.positions input{padding:7px;font-size:12px}button{border:0;background:#111;color:#fff;border-radius:7px;padding:10px 13px;font-weight:700;cursor:pointer;white-space:nowrap}.topActions button:nth-child(2){background:var(--blue)}.topActions button:nth-child(3){background:var(--green)}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.mobileOnly{display:none}.previewWrap{position:sticky;top:76px;align-self:start;height:calc(100vh - 90px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}.previewHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.previewHead strong{font-size:15px}.zoomControls{display:flex;align-items:center;gap:8px}.zoomControls button{padding:6px 11px;background:#24364b}.zoomControls span{min-width:48px;text-align:center;font-size:12px;font-weight:700;color:#344054}.canvasScroller{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;background:linear-gradient(45deg,#fafafa,#fff);border:1px solid #edf0f3;border-radius:10px;padding:12px}canvas{background:#fff;border:1px solid #111;width:var(--canvas-width,377px);height:auto;box-shadow:0 8px 24px rgba(0,0,0,.18);transform-origin:top center}.previewHint{font-size:12px;color:var(--muted);margin:8px 0 0;text-align:center}@media(max-width:900px){.topbar{position:relative;align-items:flex-start;flex-direction:column}.app{height:auto;display:flex;flex-direction:column;padding:10px;overflow:visible}.panel{order:2;overflow:visible}.previewWrap{order:1;position:sticky;top:0;height:58vh;z-index:10}.mobileOnly{display:flex}.brand img{width:120px}.positions{grid-template-columns:repeat(2,1fr)}}@media print{body{background:#fff}.topbar,.panel,.previewHint,.previewHead{display:none}.app{display:block;height:auto;margin:0;padding:0}.previewWrap{display:block;border:0;padding:0;height:auto}.canvasScroller{display:block;overflow:visible;border:0;padding:0}canvas{box-shadow:none;border:0;width:100mm!important;height:auto}}
+
+textarea{
+  width:100%;
+  box-sizing:border-box;
+  resize:vertical;
+  border:1px solid #d0d5dd;
+  border-radius:10px;
+  padding:10px;
+  font:13px/1.4 Arial, sans-serif;
+  background:#fff;
+  color:#111827;
+}
+.actionsInline{
+  display:flex;
+  gap:8px;
+  margin:10px 0 4px;
+}
+.actionsInline button{
+  flex:1;
+}

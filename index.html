@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TC Label Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo-azulcargo.png" alt="Azul Cargo" onerror="this.style.display='none'">
+      <div>
+        <h1>TC Label Editor</h1>
+        <p>Editor de etiqueta com endereço correto</p>
+      </div>
+    </div>
+    <div class="topActions">
+      <button id="fitBtn" type="button">Ajustar tela</button>
+      <button id="downloadBtn" type="button">Baixar PNG</button>
+      <button id="printBtn" type="button">Imprimir</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <section class="panel">
+      <div class="panelHead">
+        <strong>1. Etiqueta original</strong>
+        <span>PNG, JPG ou WEBP</span>
+      </div>
+
+      <label class="upload">
+        <input id="fileInput" type="file" accept="image/*" />
+        <span>Subir etiqueta original</span>
+      </label>
+
+      <div class="panelHead spaceTop">
+        <strong>2. Colar bloco completo</strong>
+        <span>preenche automático</span>
+      </div>
+
+      <label>Bloco de endereço correto
+        <textarea id="blocoEndereco" rows="9" placeholder="Destinatário: Luiz Moreno&#10;Endereço: Rua Antonio Tavares, 30 - apartamento 155&#10;Bairro: Cambuci&#10;Cidade/UF: São Paulo - SP&#10;Ponto de Referência:&#10;CEP: 01542-010&#10;Contato: 11982077123"></textarea>
+      </label>
+
+      <div class="actionsInline">
+        <button id="parseBtn" type="button">Aplicar bloco</button>
+        <button id="clearFieldsBtn" type="button">Limpar campos</button>
+      </div>
+
+      <div class="panelHead spaceTop">
+        <strong>3. Campos editáveis</strong>
+        <span>pode ajustar manualmente</span>
+      </div>
+
+      <label>Destinatário
+        <input id="destinatario" placeholder="Nome do destinatário" />
+      </label>
+
+      <label>Endereço correto
+        <input id="enderecoCorreto" placeholder="Rua / Avenida, número" />
+      </label>
+
+      <label>Complemento
+        <input id="complementoCorreto" placeholder="Apartamento, bloco, casa, etc." />
+      </label>
+
+      <label>Bairro
+        <input id="bairroCorreto" placeholder="Bairro" />
+      </label>
+
+      <div class="grid2">
+        <label>Cidade / UF
+          <input id="cidadeDestinoCorreta" placeholder="São Paulo - SP" />
+        </label>
+        <label>CEP
+          <input id="cepCorreto" placeholder="01542-010" />
+        </label>
+      </div>
+
+      <label>Ponto de Referência
+        <input id="referenciaCorreta" placeholder="Opcional" />
+      </label>
+
+      <label>Contato
+        <input id="telefoneCorreto" placeholder="11982077123" />
+      </label>
+
+      <label class="check">
+        <input id="tituloCorreto" type="checkbox" checked />
+        Exibir título ENDEREÇO CORRETO
+      </label>
+
+      <details>
+        <summary>Ajuste fino da posição</summary>
+        <p class="hint">Ajuste X, Y, largura e altura do bloco vendo a etiqueta ao mesmo tempo.</p>
+        <div id="positions" class="positions"></div>
+      </details>
+    </section>
+
+    <aside class="previewWrap">
+      <div class="previewHead">
+        <strong>Visualização da etiqueta</strong>
+        <div class="zoomControls">
+          <button id="zoomOut" type="button">−</button>
+          <span id="zoomLabel">100%</span>
+          <button id="zoomIn" type="button">+</button>
+        </div>
+      </div>
+      <div class="canvasScroller">
+        <canvas id="canvas" width="377" height="594"></canvas>
+      </div>
+      <p class="previewHint">Cole o bloco completo, clique em Aplicar bloco e revise a etiqueta na lateral.</p>
+    </aside>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
