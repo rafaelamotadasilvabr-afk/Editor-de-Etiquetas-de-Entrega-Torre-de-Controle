@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TC Label Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="panel">
+      <div class="brand">
+        <img src="logo-azulcargo.png" alt="Azul Cargo" onerror="this.style.display='none'">
+        <div>
+          <h1>TC Label Editor</h1>
+          <p>Acrescente o endereço correto mantendo a etiqueta original.</p>
+        </div>
+      </div>
+
+      <label class="upload">
+        <input id="fileInput" type="file" accept="image/*" />
+        <span>Subir etiqueta original</span>
+      </label>
+
+      <h2>Dados principais</h2>
+
+      <div class="grid2">
+        <label>AWB
+          <input id="awb" placeholder="577-93126681" />
+        </label>
+        <label>Destinatário
+          <input id="destinatario" placeholder="Nome do destinatário" />
+        </label>
+      </div>
+
+      <h2>Endereço correto</h2>
+      <p class="hint">Este bloco será acrescentado no campo inferior direito da etiqueta como endereço correto.</p>
+
+      <label>Endereço correto
+        <input id="enderecoCorreto" placeholder="ALAMEDA SAO CAETANO, 321" />
+      </label>
+
+      <label>Linha adicional do endereço
+        <input id="linhaEndereco2" placeholder="SANTA PAULA - 09560050" />
+      </label>
+
+      <label>Complemento correto
+        <input id="complementoCorreto" placeholder="apt 21 bl 2" />
+      </label>
+
+      <label>Cidade destino correta
+        <input id="cidadeDestinoCorreta" placeholder="3548807-Sao Caetano do Sul" />
+      </label>
+
+      <label>Telefone correto
+        <input id="telefoneCorreto" placeholder="(11) 99999-9999" />
+      </label>
+
+      <label class="check">
+        <input id="tituloCorreto" type="checkbox" checked />
+        Exibir título ENDEREÇO CORRETO
+      </label>
+
+      <details>
+        <summary>Ajuste fino da posição</summary>
+        <p class="hint">Use se a etiqueta enviada tiver tamanho diferente. Valores em percentual da etiqueta.</p>
+        <div id="positions" class="positions"></div>
+      </details>
+
+      <div class="actions">
+        <button id="renderBtn">Aplicar alterações</button>
+        <button id="downloadBtn">Baixar PNG</button>
+        <button id="printBtn">Imprimir</button>
+      </div>
+    </section>
+
+    <section class="previewWrap">
+      <canvas id="canvas" width="377" height="594"></canvas>
+      <p class="previewHint">A etiqueta original será preservada. O endereço correto será aplicado no bloco inferior direito.</p>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
