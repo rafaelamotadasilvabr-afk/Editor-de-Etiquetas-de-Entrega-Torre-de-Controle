@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gerador de Correção de Endereço</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="panel no-print">
+      <h1>Gerador de correção de endereço</h1>
+      <p class="hint">Suba a etiqueta original e preencha apenas os campos que precisam aparecer corrigidos no mesmo layout.</p>
+
+      <label class="file-box">
+        <span>Subir etiqueta original</span>
+        <input id="upload" type="file" accept="image/*" />
+      </label>
+
+      <div class="grid">
+        <label>AWB<input id="awb" placeholder="577-93126681"></label>
+        <label>Destinatário<input id="destinatario" placeholder="Nome do destinatário"></label>
+        <label>Rua / Avenida<input id="logradouro" placeholder="Rua, avenida, travessa..."></label>
+        <label>Número<input id="numero" placeholder="330"></label>
+        <label>Complemento<input id="complemento" placeholder="Apto, bloco, referência..."></label>
+        <label>Bairro<input id="bairro" placeholder="Bairro"></label>
+        <label>CEP<input id="cep" placeholder="00000-000"></label>
+        <label>Cidade / UF<input id="cidade" placeholder="Belo Horizonte/MG"></label>
+        <label>Telefone<input id="telefone" placeholder="(00) 00000-0000"></label>
+      </div>
+
+      <label class="check">
+        <input id="alerta" type="checkbox" checked />
+        Incluir alerta operacional para triagem/entregador
+      </label>
+
+      <div class="actions">
+        <button id="btnPrint">Imprimir</button>
+        <button id="btnDownload">Baixar PNG</button>
+        <button id="btnClear" class="secondary">Limpar campos</button>
+      </div>
+    </section>
+
+    <section class="preview-wrap">
+      <div id="labelPreview" class="label-preview">
+        <div class="empty">Suba a imagem da etiqueta original</div>
+        <img id="baseLabel" alt="Etiqueta original" />
+
+        <div id="awbBox" class="overlay awb-box"></div>
+
+        <div id="destBox" class="overlay dest-box">
+          <div class="tag">Destinatário / endereço corrigido</div>
+          <div id="destText" class="dest-text"></div>
+        </div>
+
+        <div id="alertBox" class="overlay alert-box">
+          ATENÇÃO: ENDEREÇO CORRIGIDO. CONSIDERAR ESTA INFORMAÇÃO PARA ENTREGA.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <canvas id="canvas" width="383" height="578" hidden></canvas>
+  <script src="script.js"></script>
+</body>
+</html>
