@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TC Label Editor | Copiar e Colar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo-azulcargo.png" alt="Azul Logística" onerror="this.style.display='none'">
+      <div>
+        <h1>TC LABEL EDITOR</h1>
+        <p>Correção por copiar e colar</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btnClear" class="btn ghost">Limpar</button>
+      <button id="btnApply" class="btn primary">Aplicar</button>
+      <button id="btnDownload" class="btn success">Baixar PNG</button>
+      <button id="btnPrint" class="btn dark">Imprimir</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel left">
+      <div class="card">
+        <div class="step-title"><span>1.</span><strong>Colar etiqueta</strong></div>
+        <div id="pasteImageArea" class="paste-area" tabindex="0">
+          <div class="paste-icon">📋</div>
+          <strong>Clique aqui e pressione Ctrl + V</strong>
+          <small>Cole o recorte da etiqueta original</small>
+        </div>
+        <input id="fileInput" type="file" accept="image/*" hidden>
+        <button id="btnFile" class="btn full ghost">Selecionar imagem</button>
+      </div>
+
+      <div class="card">
+        <div class="step-title"><span>2.</span><strong>Colar informação correta</strong></div>
+        <textarea id="addressText" placeholder="Cole aqui o endereço, telefone, complemento ou qualquer informação correta."></textarea>
+        <label class="check">
+          <input id="keepExact" type="checkbox" checked>
+          <span>Manter exatamente como foi colado</span>
+        </label>
+        <div class="volume-control">
+          <label for="volumeCount"><strong>Quantidade de volumes</strong></label>
+          <input id="volumeCount" type="number" min="1" max="500" value="1">
+          <small>Se for mais de 1, serão geradas etiquetas numeradas no campo Volume (1/5, 2/5...).</small>
+        </div>
+        <button id="btnApply2" class="btn full primary">Aplicar na etiqueta</button>
+      </div>
+
+      <div class="card compact">
+        <strong>Posicionamento</strong>
+        <p>Depois de aplicar, arraste o bloco vermelho diretamente na etiqueta.</p>
+        <div class="size-controls">
+          <label>
+            <span>Largura do bloco</span>
+            <div class="range-line"><input id="blockWidth" type="range" min="12" max="65" value="31"><em id="blockWidthLabel">31%</em></div>
+          </label>
+          <label>
+            <span>Altura do bloco</span>
+            <div class="range-line"><input id="blockHeight" type="range" min="3" max="35" value="6"><em id="blockHeightLabel">6%</em></div>
+          </label>
+          <label>
+            <span>Tamanho da fonte</span>
+            <div class="range-line"><input id="fontScale" type="range" min="70" max="140" value="100"><em id="fontScaleLabel">100%</em></div>
+          </label>
+        </div>
+        <div class="row-actions">
+          <button id="btnResetPos" class="btn ghost">Resetar posição</button>
+          <button id="btnFit" class="btn ghost">Enquadrar no lado direito</button>
+          <button id="btnPhonePreset" class="btn ghost">Usar tamanho telefone</button>
+          <button id="btnSetVolumePos" class="btn ghost">Definir posição do Volume</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel right">
+      <div class="preview-head">
+        <div>
+          <strong>Pré-visualização</strong>
+          <p>Arraste o bloco vermelho para enquadrar corretamente antes de imprimir.</p>
+        </div>
+        <div class="zoom">
+          <button id="zoomOut" class="btn ghost">−</button>
+          <span id="zoomLabel">100%</span>
+          <button id="zoomIn" class="btn ghost">+</button>
+        </div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="canvas"></canvas>
+        <div id="emptyState" class="empty-state">Cole a etiqueta original para começar</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
