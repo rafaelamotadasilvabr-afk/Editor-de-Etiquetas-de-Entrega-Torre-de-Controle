@@ -1,6 +1,5 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-
 const pasteImageArea = document.getElementById('pasteImageArea');
 const addressText = document.getElementById('addressText');
 const emptyState = document.getElementById('emptyState');
@@ -15,1316 +14,120 @@ let originalImage = null;
 let zoom = 1;
 let lastAppliedText = '';
 let block = null;
+let manualSize = false;
 
-let drag = {
+let originalBarcode = '';
+let barcodeStatus = 'idle';
+let barcodeDetectionPromise = null;
+
+const drag = {
   active: false,
   dx: 0,
   dy: 0
 };
 
-let manualSize = false;
-
 
 /* =========================================================
-   IDENTIFICAÇÃO DA ETIQUETA
+   CAMPOS DA ETIQUETA
    ========================================================= */
 
-let originalBarcode = '';
-let originalQrPayload = '';
-
-let barcodeStatus = 'idle';
-let barcodeDetectionPromise = null;
-
-
-/*
-  Código de barras inferior.
-*/
-const BARCODE_FIELD = {
-  x: 0.145,
-  y: 0.805,
-  width: 0.710,
-  height: 0.098
-};
-
-
-/*
-  QR Code grande da etiqueta.
-*/
-const QR_FIELD = {
-  x: 0.548,
-  y: 0.283,
-  width: 0.385,
-  height: 0.255
-};
-
-
-/*
-  Campo Volume.
-*/
 const VOLUME_FIELD = {
   centerX: 0.181,
   centerY: 0.496,
   clearWidth: 0.190,
-  clearHeight: 0.055
+  clearHeight: 0.038
 };
 
 
-/* =========================================================
-   BIBLIOTECAS
-   ========================================================= */
-
-function barcodeLibrariesAvailable() {
-
-  return (
-    !!window.ZXingBrowser &&
-    typeof window.JsBarcode === 'function' &&
-    !!window.QRCode &&
-    typeof window.QRCode.create === 'function'
-  );
-}
+/*
+  Área onde o NOVO código de barras
+  será colocado.
+*/
+const BARCODE_FIELD = {
+  x: 0.145,
+  y: 0.812,
+  width: 0.710,
+  height: 0.088
+};
 
 
-/* =========================================================
-   EXTRAIR CÓDIGO
-   ========================================================= */
-
-function extractBarcodeValue(value) {
-
-  const text =
-    String(value || '').trim();
-
-
-  /*
-    QR DA ETIQUETA:
-
-    577062760340001|EXPRESSO_CORP|...
-
-    O primeiro campo é exatamente
-    o código de 15 dígitos.
-  */
-  const firstField =
-    text
-      .split('|')[0]
-      .replace(/\D/g, '');
-
-
-  if(firstField.length === 15){
-
-    return firstField;
+/*
+  Regiões onde tentaremos ler o QR grande.
+*/
+const QR_SCAN_FIELDS = [
+  {
+    x: 0.48,
+    y: 0.245,
+    width: 0.49,
+    height: 0.34
+  },
+  {
+    x: 0.52,
+    y: 0.270,
+    width: 0.43,
+    height: 0.30
+  },
+  {
+    x: 0.45,
+    y: 0.220,
+    width: 0.52,
+    height: 0.39
   }
+];
 
 
-  /*
-    Caso seja leitura direta
-    do CODE128.
-  */
-  const onlyDigits =
-    text.replace(/\D/g, '');
-
-
-  if(onlyDigits.length === 15){
-
-    return onlyDigits;
+/*
+  Regiões onde tentaremos ler
+  o código de barras inferior.
+*/
+const BARCODE_SCAN_FIELDS = [
+  {
+    x: 0.10,
+    y: 0.785,
+    width: 0.80,
+    height: 0.145
+  },
+  {
+    x: 0.04,
+    y: 0.755,
+    width: 0.92,
+    height: 0.190
+  },
+  {
+    x: 0.00,
+    y: 0.700,
+    width: 1.00,
+    height: 0.270
   }
-
-
-  /*
-    Último fallback.
-  */
-  const match =
-    text.match(
-      /(?:^|\D)(\d{15})(?:\D|$)/
-    );
-
-
-  return match
-    ? match[1]
-    : '';
-}
+];
 
 
 /* =========================================================
-   CRIAR RECORTE DO RODAPÉ
+   BLOCO PADRÃO DE CORREÇÃO
    ========================================================= */
 
-function createBottomScanCanvas(
-  img,
-  scale = 4
-){
-
-  const sourceWidth =
-    img.naturalWidth ||
-    img.width;
-
-
-  const sourceHeight =
-    img.naturalHeight ||
-    img.height;
-
-
-  const sx = 0;
-
-  const sy =
-    Math.round(
-      sourceHeight *
-      0.70
-    );
-
-
-  const sw =
-    sourceWidth;
-
-
-  const sh =
-    sourceHeight -
-    sy;
-
-
-  const scanCanvas =
-    document.createElement(
-      'canvas'
-    );
-
-
-  scanCanvas.width =
-    sw *
-    scale;
-
-
-  scanCanvas.height =
-    sh *
-    scale;
-
-
-  const scanCtx =
-    scanCanvas.getContext(
-      '2d',
-      {
-        willReadFrequently: true
-      }
-    );
-
-
-  scanCtx.fillStyle =
-    '#ffffff';
-
-
-  scanCtx.fillRect(
-    0,
-    0,
-    scanCanvas.width,
-    scanCanvas.height
-  );
-
-
-  scanCtx.imageSmoothingEnabled =
-    false;
-
-
-  scanCtx.drawImage(
-    img,
-
-    sx,
-    sy,
-    sw,
-    sh,
-
-    0,
-    0,
-    scanCanvas.width,
-    scanCanvas.height
-  );
-
-
-  return scanCanvas;
-}
-
-
-/* =========================================================
-   IDENTIFICAR QR / BARCODE
-   ========================================================= */
-
-async function detectOriginalBarcode(img) {
-
-  if(!img){
-
-    return '';
-  }
-
-
-  if(
-    barcodeStatus === 'loading' &&
-    barcodeDetectionPromise
-  ){
-
-    return barcodeDetectionPromise;
-  }
-
-
-  if(!barcodeLibrariesAvailable()){
-
-    originalBarcode = '';
-    originalQrPayload = '';
-
-    barcodeStatus =
-      'error';
-
-
-    console.error(
-      '[TC Label Editor] Bibliotecas não carregadas.'
-    );
-
-
-    return '';
-  }
-
-
-  const targetImage =
-    img;
-
-
-  originalBarcode = '';
-  originalQrPayload = '';
-
-  barcodeStatus =
-    'loading';
-
-
-  const task =
-    (async () => {
-
-
-      /*
-        =====================================================
-        1. PRIMEIRA OPÇÃO:
-        LER O QR GRANDE
-        =====================================================
-      */
-
-      try {
-
-        const qrReader =
-          new window
-            .ZXingBrowser
-            .BrowserQRCodeReader();
-
-
-        const qrResult =
-          await qrReader
-            .decodeFromImageElement(
-              targetImage
-            );
-
-
-        const qrText =
-          typeof qrResult?.getText ===
-          'function'
-
-            ? qrResult.getText()
-
-            : String(
-                qrResult?.text ||
-                ''
-              );
-
-
-        const qrBarcode =
-          extractBarcodeValue(
-            qrText
-          );
-
-
-        if(
-          qrBarcode &&
-          originalImage ===
-          targetImage
-        ){
-
-          originalBarcode =
-            qrBarcode;
-
-
-          originalQrPayload =
-            qrText;
-
-
-          barcodeStatus =
-            'ready';
-
-
-          console.info(
-            '[TC Label Editor] Código identificado pelo QR:',
-            originalBarcode
-          );
-
-
-          return originalBarcode;
-        }
-
-
-      } catch(error){
-
-        console.info(
-          '[TC Label Editor] QR não lido. Tentando barcode inferior.'
-        );
-      }
-
-
-
-      /*
-        =====================================================
-        2. FALLBACK:
-        CODE128 COMPLETO
-        =====================================================
-      */
-
-      try {
-
-        if(
-          window
-            .ZXingBrowser
-            .BrowserMultiFormatOneDReader
-        ){
-
-          const oneDReader =
-            new window
-              .ZXingBrowser
-              .BrowserMultiFormatOneDReader();
-
-
-          const result =
-            await oneDReader
-              .decodeFromImageElement(
-                targetImage
-              );
-
-
-          const raw =
-            typeof result?.getText ===
-            'function'
-
-              ? result.getText()
-
-              : String(
-                  result?.text ||
-                  ''
-                );
-
-
-          const value =
-            extractBarcodeValue(
-              raw
-            );
-
-
-          if(
-            value &&
-            originalImage ===
-            targetImage
-          ){
-
-            originalBarcode =
-              value;
-
-
-            barcodeStatus =
-              'ready';
-
-
-            console.info(
-              '[TC Label Editor] Código identificado pelo barcode:',
-              originalBarcode
-            );
-
-
-            return originalBarcode;
-          }
-        }
-
-
-      } catch(error){
-
-        console.info(
-          '[TC Label Editor] Barcode completo não lido.'
-        );
-      }
-
-
-
-      /*
-        =====================================================
-        3. FALLBACK FINAL:
-        AMPLIA O RODAPÉ
-        =====================================================
-      */
-
-      try {
-
-        if(
-          window
-            .ZXingBrowser
-            .BrowserMultiFormatOneDReader
-        ){
-
-          const oneDReader =
-            new window
-              .ZXingBrowser
-              .BrowserMultiFormatOneDReader();
-
-
-          for(
-            const scale
-            of [3, 4, 5]
-          ){
-
-            try {
-
-              const scanCanvas =
-                createBottomScanCanvas(
-                  targetImage,
-                  scale
-                );
-
-
-              const result =
-                await oneDReader
-                  .decodeFromCanvas(
-                    scanCanvas
-                  );
-
-
-              const raw =
-                typeof result?.getText ===
-                'function'
-
-                  ? result.getText()
-
-                  : String(
-                      result?.text ||
-                      ''
-                    );
-
-
-              const value =
-                extractBarcodeValue(
-                  raw
-                );
-
-
-              if(
-                value &&
-                originalImage ===
-                targetImage
-              ){
-
-                originalBarcode =
-                  value;
-
-
-                barcodeStatus =
-                  'ready';
-
-
-                console.info(
-                  '[TC Label Editor] Código identificado no rodapé:',
-                  originalBarcode
-                );
-
-
-                return originalBarcode;
-              }
-
-
-            } catch(error){
-
-            }
-
-          }
-        }
-
-
-      } catch(error){
-
-      }
-
-
-
-      /*
-        NÃO IDENTIFICOU.
-      */
-
-      if(
-        originalImage ===
-        targetImage
-      ){
-
-        originalBarcode = '';
-        originalQrPayload = '';
-
-        barcodeStatus =
-          'error';
-      }
-
-
-      console.warn(
-        '[TC Label Editor] Não foi possível identificar o código da etiqueta.'
-      );
-
-
-      return '';
-
-    })();
-
-
-  barcodeDetectionPromise =
-    task;
-
-
-  try {
-
-    return await task;
-
-
-  } finally {
-
-    if(
-      barcodeDetectionPromise ===
-      task
-    ){
-
-      barcodeDetectionPromise =
-        null;
-    }
-  }
-}
-
-
-/* =========================================================
-   CÓDIGO POR VOLUME
-   ========================================================= */
-
-function barcodeForVolume(
-  volumeIndex
-){
-
-  const clean =
-    extractBarcodeValue(
-      originalBarcode
-    );
-
-
-  if(!clean){
-
-    return '';
-  }
-
-
-  /*
-    ORIGINAL:
-    577062760340001
-
-    BASE:
-    57706276034
-  */
-  const base =
-    clean.slice(
-      0,
-      -4
-    );
-
-
-  /*
-    1 = 0001
-    2 = 0002
-    3 = 0003
-  */
-  const sequence =
-    String(
-      volumeIndex
-    )
-      .padStart(
-        4,
-        '0'
-      );
-
-
-  return (
-    base +
-    sequence
-  );
-}
-
-
-/* =========================================================
-   QR POR VOLUME
-   ========================================================= */
-
-function qrPayloadForVolume(
-  volumeIndex,
-  totalVolumes
-){
-
-  if(!originalQrPayload){
-
-    return '';
-  }
-
-
-  const parts =
-    originalQrPayload
-      .split('|');
-
-
-  /*
-    MODELO DA ETIQUETA:
-
-    [0] = código de 15 dígitos
-    [9] = quantidade total de volumes
-    [10] = volume atual
-  */
-  if(
-    parts.length <
-    11
-  ){
-
-    return '';
-  }
-
-
-  const volumeBarcode =
-    barcodeForVolume(
-      volumeIndex
-    );
-
-
-  if(!volumeBarcode){
-
-    return '';
-  }
-
-
-  parts[0] =
-    volumeBarcode;
-
-
-  parts[9] =
-    String(
-      totalVolumes
-    );
-
-
-  parts[10] =
-    String(
-      volumeIndex
-    );
-
-
-  return parts.join('|');
-}
-
-
-/* =========================================================
-   DESENHAR QR
-   ========================================================= */
-
-function drawQrField(
-  targetCtx,
-  targetCanvas,
-  payload
-){
-
-  if(
-    !payload ||
-    !window.QRCode ||
-    typeof window.QRCode.create !==
-    'function'
-  ){
-
-    return;
-  }
-
-
-  const fieldX =
-    Math.round(
-      targetCanvas.width *
-      QR_FIELD.x
-    );
-
-
-  const fieldY =
-    Math.round(
-      targetCanvas.height *
-      QR_FIELD.y
-    );
-
-
-  const fieldWidth =
-    Math.round(
-      targetCanvas.width *
-      QR_FIELD.width
-    );
-
-
-  const fieldHeight =
-    Math.round(
-      targetCanvas.height *
-      QR_FIELD.height
-    );
-
-
-  const qr =
-    window.QRCode.create(
-      payload,
-      {
-        errorCorrectionLevel: 'M'
-      }
-    );
-
-
-  const modules =
-    qr.modules;
-
-
-  const count =
-    modules.size;
-
-
-  /*
-    Quiet zone padrão.
-  */
-  const quiet =
-    4;
-
-
-  const totalModules =
-    count +
-    (
-      quiet *
-      2
-    );
-
-
-  const size =
-    Math.min(
-      fieldWidth,
-      fieldHeight
-    );
-
-
-  const x =
-    Math.round(
-      fieldX +
-      (
-        (
-          fieldWidth -
-          size
-        ) /
-        2
-      )
-    );
-
-
-  const y =
-    Math.round(
-      fieldY +
-      (
-        (
-          fieldHeight -
-          size
-        ) /
-        2
-      )
-    );
-
-
-  targetCtx.save();
-
-
-  /*
-    COBRE QR ORIGINAL.
-  */
-  targetCtx.fillStyle =
-    '#ffffff';
-
-
-  targetCtx.fillRect(
-    fieldX -
-      Math.round(
-        targetCanvas.width *
-        0.006
-      ),
-
-    fieldY -
-      Math.round(
-        targetCanvas.height *
-        0.004
-      ),
-
-    fieldWidth +
-      Math.round(
-        targetCanvas.width *
-        0.012
-      ),
-
-    fieldHeight +
-      Math.round(
-        targetCanvas.height *
-        0.008
-      )
-  );
-
-
-  targetCtx.fillStyle =
-    '#ffffff';
-
-
-  targetCtx.fillRect(
-    x,
-    y,
-    size,
-    size
-  );
-
-
-  /*
-    DESENHA CADA MÓDULO.
-  */
-  for(
-    let row = 0;
-    row < count;
-    row++
-  ){
-
-    for(
-      let col = 0;
-      col < count;
-      col++
-    ){
-
-      const dark =
-        typeof modules.get ===
-        'function'
-
-          ? modules.get(
-              row,
-              col
-            )
-
-          : !!modules.data[
-              (
-                row *
-                count
-              ) +
-              col
-            ];
-
-
-      if(!dark){
-
-        continue;
-      }
-
-
-      const x1 =
-        Math.round(
-          x +
-          (
-            (
-              col +
-              quiet
-            ) *
-            size /
-            totalModules
-          )
-        );
-
-
-      const y1 =
-        Math.round(
-          y +
-          (
-            (
-              row +
-              quiet
-            ) *
-            size /
-            totalModules
-          )
-        );
-
-
-      const x2 =
-        Math.round(
-          x +
-          (
-            (
-              col +
-              quiet +
-              1
-            ) *
-            size /
-            totalModules
-          )
-        );
-
-
-      const y2 =
-        Math.round(
-          y +
-          (
-            (
-              row +
-              quiet +
-              1
-            ) *
-            size /
-            totalModules
-          )
-        );
-
-
-      targetCtx.fillStyle =
-        '#000000';
-
-
-      targetCtx.fillRect(
-        x1,
-        y1,
-
-        Math.max(
-          1,
-          x2 -
-          x1
-        ),
-
-        Math.max(
-          1,
-          y2 -
-          y1
-        )
-      );
-    }
-  }
-
-
-  targetCtx.restore();
-}
-
-
-/* =========================================================
-   DESENHAR CODE128
-   ========================================================= */
-
-function drawBarcodeField(
-  targetCtx,
-  targetCanvas,
-  value
-){
-
-  if(
-    !value ||
-    typeof window.JsBarcode !==
-    'function'
-  ){
-
-    return;
-  }
-
-
-  const fieldX =
-    Math.round(
-      targetCanvas.width *
-      BARCODE_FIELD.x
-    );
-
-
-  const fieldY =
-    Math.round(
-      targetCanvas.height *
-      BARCODE_FIELD.y
-    );
-
-
-  const fieldWidth =
-    Math.round(
-      targetCanvas.width *
-      BARCODE_FIELD.width
-    );
-
-
-  const fieldHeight =
-    Math.round(
-      targetCanvas.height *
-      BARCODE_FIELD.height
-    );
-
-
-  const barcodeCanvas =
-    document.createElement(
-      'canvas'
-    );
-
-
-  window.JsBarcode(
-    barcodeCanvas,
-    value,
-    {
-
-      format:
-        'CODE128',
-
-      width:
-        2,
-
-      height:
-        34,
-
-      displayValue:
-        true,
-
-      font:
-        'Arial',
-
-      fontSize:
-        15,
-
-      textAlign:
-        'center',
-
-      textPosition:
-        'bottom',
-
-      textMargin:
-        1,
-
-      margin:
-        0,
-
-      background:
-        '#ffffff',
-
-      lineColor:
-        '#000000'
-
-    }
-  );
-
-
-  const maxWidth =
-    fieldWidth *
-    0.96;
-
-
-  const maxHeight =
-    fieldHeight *
-    0.96;
-
-
-  const scale =
-    Math.min(
-
-      maxWidth /
-      barcodeCanvas.width,
-
-      maxHeight /
-      barcodeCanvas.height
-
-    );
-
-
-  const drawWidth =
-    Math.max(
-      1,
-      Math.round(
-        barcodeCanvas.width *
-        scale
-      )
-    );
-
-
-  const drawHeight =
-    Math.max(
-      1,
-      Math.round(
-        barcodeCanvas.height *
-        scale
-      )
-    );
-
-
-  const drawX =
-    Math.round(
-      fieldX +
-      (
-        (
-          fieldWidth -
-          drawWidth
-        ) /
-        2
-      )
-    );
-
-
-  const drawY =
-    Math.round(
-      fieldY +
-      (
-        (
-          fieldHeight -
-          drawHeight
-        ) /
-        2
-      )
-    );
-
-
-  targetCtx.save();
-
-
-  /*
-    APAGA BARCODE ANTIGO.
-  */
-  targetCtx.fillStyle =
-    '#ffffff';
-
-
-  targetCtx.fillRect(
-    fieldX,
-    fieldY,
-    fieldWidth,
-    fieldHeight
-  );
-
-
-  targetCtx.imageSmoothingEnabled =
-    false;
-
-
-  targetCtx.drawImage(
-    barcodeCanvas,
-
-    0,
-    0,
-    barcodeCanvas.width,
-    barcodeCanvas.height,
-
-    drawX,
-    drawY,
-    drawWidth,
-    drawHeight
-  );
-
-
-  targetCtx.restore();
-}
-
-
-/* =========================================================
-   VALIDAR SAÍDA
-   ========================================================= */
-
-async function prepareBarcodeForOutput(
-  totalVolumes
-){
-
-  if(!originalImage){
-
-    return false;
-  }
-
-
-  if(!barcodeLibrariesAvailable()){
-
-    alert(
-      'As bibliotecas de QR e código de barras não foram carregadas.\n\n' +
-      'Verifique o index.html.'
-    );
-
-
-    return false;
-  }
-
-
-  if(
-    barcodeStatus ===
-    'loading' &&
-    barcodeDetectionPromise
-  ){
-
-    await barcodeDetectionPromise;
-  }
-
-
-  if(!originalBarcode){
-
-    await detectOriginalBarcode(
-      originalImage
-    );
-
-
-    drawLabel();
-  }
-
-
-  /*
-    PARA MÚLTIPLOS VOLUMES,
-    PRECISAMOS OBRIGATORIAMENTE
-    DO QR ORIGINAL.
-  */
-  if(
-    totalVolumes >
-    1 &&
-    (
-      !originalBarcode ||
-      !originalQrPayload
-    )
-  ){
-
-    alert(
-      'Não consegui identificar o QR Code completo da etiqueta.\n\n' +
-      'Para gerar vários volumes com segurança, o sistema precisa atualizar o QR Code e o código de barras de cada etiqueta.\n\n' +
-      'Cole a etiqueta completa e tente novamente.'
-    );
-
-
-    return false;
-  }
-
-
-  return true;
-}
-
-
-/* =========================================================
-   BLOCO PADRÃO
-   ========================================================= */
-
-function defaultBlock(){
+function defaultBlock() {
 
   return {
 
     x:
       Math.round(
-        canvas.width *
-        0.54
+        canvas.width * 0.54
       ),
 
     y:
       Math.round(
-        canvas.height *
-        0.57
+        canvas.height * 0.57
       ),
 
     width:
       Math.round(
-        canvas.width *
-        0.39
+        canvas.width * 0.39
       ),
 
     minHeight:
       Math.round(
-        canvas.height *
-        0.19
+        canvas.height * 0.19
       ),
 
     mode:
@@ -1332,7 +135,39 @@ function defaultBlock(){
 
     fontScale:
       1
+  };
+}
 
+
+function phoneDefaultBlock() {
+
+  return {
+
+    x:
+      Math.round(
+        canvas.width * 0.54
+      ),
+
+    y:
+      Math.round(
+        canvas.height * 0.69
+      ),
+
+    width:
+      Math.round(
+        canvas.width * 0.31
+      ),
+
+    minHeight:
+      Math.round(
+        canvas.height * 0.055
+      ),
+
+    mode:
+      'phone',
+
+    fontScale:
+      1
   };
 }
 
@@ -1341,10 +176,9 @@ function defaultBlock(){
    POSICIONAMENTO
    ========================================================= */
 
-function fitRightBlock(){
+function fitRightBlock() {
 
-  if(!originalImage){
-
+  if (!originalImage) {
     return;
   }
 
@@ -1357,15 +191,12 @@ function fitRightBlock(){
     );
 
 
-  if(
-    isPhoneOnly(
-      text
-    )
-  ){
+  if (
+    isPhoneOnly(text)
+  ) {
 
     block =
       phoneDefaultBlock();
-
 
   } else {
 
@@ -1373,35 +204,29 @@ function fitRightBlock(){
 
       x:
         Math.round(
-          canvas.width *
-          0.53
+          canvas.width * 0.53
         ),
 
       y:
         Math.round(
-          canvas.height *
-          0.58
+          canvas.height * 0.58
         ),
 
       width:
         Math.round(
-          canvas.width *
-          0.40
+          canvas.width * 0.40
         ),
 
       minHeight:
         Math.round(
-          canvas.height *
-          0.18
+          canvas.height * 0.18
         ),
 
       mode:
         'address',
 
       fontScale:
-        block?.fontScale ||
-        1
-
+        block?.fontScale || 1
     };
   }
 
@@ -1412,10 +237,9 @@ function fitRightBlock(){
 }
 
 
-function resetBlock(){
+function resetBlock() {
 
-  if(!originalImage){
-
+  if (!originalImage) {
     return;
   }
 
@@ -1433,9 +257,7 @@ function resetBlock(){
 
 
   block =
-    isPhoneOnly(
-      text
-    )
+    isPhoneOnly(text)
 
       ? phoneDefaultBlock()
 
@@ -1452,7 +274,7 @@ function resetBlock(){
    ZOOM
    ========================================================= */
 
-function setZoom(value){
+function setZoom(value) {
 
   zoom =
     Math.max(
@@ -1478,8 +300,7 @@ function setZoom(value){
         0,
         canvas.height *
         (
-          zoom -
-          1
+          zoom - 1
         )
       )
     }px`;
@@ -1491,240 +312,16 @@ function setZoom(value){
     )
     .textContent =
       Math.round(
-        zoom *
-        100
-      ) +
-      '%';
+        zoom * 100
+      ) + '%';
 }
-
-
-/* =========================================================
-   CARREGAR IMAGEM
-   ========================================================= */
-
-function loadImageFromFile(file){
-
-  if(
-    !file ||
-    !file.type.startsWith(
-      'image/'
-    )
-  ){
-
-    return;
-  }
-
-
-  const reader =
-    new FileReader();
-
-
-  reader.onload =
-    () => {
-
-
-      const img =
-        new Image();
-
-
-      img.onload =
-        () => {
-
-
-          originalImage =
-            img;
-
-
-          canvas.width =
-            originalImage.width;
-
-
-          canvas.height =
-            originalImage.height;
-
-
-          originalBarcode =
-            '';
-
-
-          originalQrPayload =
-            '';
-
-
-          barcodeStatus =
-            'idle';
-
-
-          barcodeDetectionPromise =
-            null;
-
-
-          block =
-            defaultBlock();
-
-
-          syncControlsFromBlock();
-
-          drawLabel();
-
-
-          pasteImageArea
-            .classList
-            .add(
-              'active'
-            );
-
-
-          pasteImageArea.innerHTML =
-            '<div class="paste-icon">✅</div>' +
-            '<strong>Etiqueta colada</strong>' +
-            '<small>Identificando QR/código...</small>';
-
-
-          detectOriginalBarcode(
-            originalImage
-          )
-          .then(
-            value => {
-
-
-              if(
-                originalImage !==
-                img
-              ){
-
-                return;
-              }
-
-
-              if(value){
-
-                pasteImageArea.innerHTML =
-                  '<div class="paste-icon">✅</div>' +
-                  '<strong>Etiqueta colada</strong>' +
-                  `<small>Código identificado: ${value}</small>`;
-
-
-              } else {
-
-                pasteImageArea.innerHTML =
-                  '<div class="paste-icon">⚠️</div>' +
-                  '<strong>Etiqueta colada</strong>' +
-                  '<small>Não foi possível identificar o código automaticamente</small>';
-              }
-
-
-              drawLabel();
-            }
-          );
-
-        };
-
-
-      img.src =
-        reader.result;
-
-    };
-
-
-  reader.readAsDataURL(
-    file
-  );
-}
-
-
-/* =========================================================
-   COLAR IMAGEM
-   ========================================================= */
-
-function handlePaste(e){
-
-  const items =
-    e.clipboardData?.items ||
-    [];
-
-
-  for(
-    const item
-    of items
-  ){
-
-    if(
-      item.type.startsWith(
-        'image/'
-      )
-    ){
-
-      e.preventDefault();
-
-
-      loadImageFromFile(
-        item.getAsFile()
-      );
-
-
-      return;
-    }
-  }
-}
-
-
-document.addEventListener(
-  'paste',
-  e => {
-
-    if(
-      document.activeElement ===
-      addressText
-    ){
-
-      return;
-    }
-
-
-    handlePaste(e);
-  }
-);
-
-
-pasteImageArea.addEventListener(
-  'paste',
-  handlePaste
-);
-
-
-pasteImageArea.addEventListener(
-  'click',
-  () =>
-    pasteImageArea.focus()
-);
-
-
-document
-  .getElementById(
-    'btnFile'
-  )
-  .addEventListener(
-    'click',
-    () =>
-      fileInput.click()
-  );
-
-
-fileInput.addEventListener(
-  'change',
-  () =>
-    loadImageFromFile(
-      fileInput.files[0]
-    )
-);
 
 
 /* =========================================================
    TEXTO
    ========================================================= */
 
-function normalizeIfNeeded(text){
+function normalizeIfNeeded(text) {
 
   const keepExact =
     document
@@ -1734,7 +331,7 @@ function normalizeIfNeeded(text){
       .checked;
 
 
-  if(keepExact){
+  if (keepExact) {
 
     return text
       .replace(
@@ -1755,20 +352,15 @@ function normalizeIfNeeded(text){
       line =>
         line.trim()
     )
-    .filter(
-      Boolean
-    )
-    .join(
-      '\n'
-    );
+    .filter(Boolean)
+    .join('\n');
 }
 
 
-function compactText(text){
+function compactText(text) {
 
   return (
-    text ||
-    ''
+    text || ''
   )
     .replace(
       /\r\n/g,
@@ -1778,24 +370,21 @@ function compactText(text){
 }
 
 
-function isPhoneOnly(text){
+function isPhoneOnly(text) {
 
   const t =
-    compactText(
-      text
-    );
+    compactText(text);
 
 
-  if(!t){
-
+  if (!t) {
     return false;
   }
 
 
-  if(
+  if (
     !/^[\d\s()+\-.]+$/
       .test(t)
-  ){
+  ) {
 
     return false;
   }
@@ -1809,11 +398,86 @@ function isPhoneOnly(text){
 
 
   return (
-    digits.length >=
-      8 &&
-    digits.length <=
-      15
+    digits.length >= 8 &&
+    digits.length <= 15
   );
+}
+
+
+function wrapText(
+  context,
+  text,
+  maxWidth
+) {
+
+  const lines = [];
+
+
+  text
+    .split('\n')
+    .forEach(
+      raw => {
+
+
+        if (
+          raw.trim() === ''
+        ) {
+
+          lines.push('');
+
+          return;
+        }
+
+
+        const words =
+          raw.split(/\s+/);
+
+
+        let line = '';
+
+
+        words.forEach(
+          word => {
+
+
+            const test =
+              line
+
+                ? `${line} ${word}`
+
+                : word;
+
+
+            if (
+              context
+                .measureText(test)
+                .width >
+                maxWidth &&
+              line
+            ) {
+
+              lines.push(line);
+
+              line =
+                word;
+
+            } else {
+
+              line =
+                test;
+            }
+
+          }
+        );
+
+
+        lines.push(line);
+
+      }
+    );
+
+
+  return lines;
 }
 
 
@@ -1821,7 +485,7 @@ function isPhoneOnly(text){
    QUANTIDADE DE VOLUMES
    ========================================================= */
 
-function getVolumeCount(){
+function getVolumeCount() {
 
   const n =
     parseInt(
@@ -1836,9 +500,7 @@ function getVolumeCount(){
     Math.min(
       500,
 
-      Number.isFinite(
-        n
-      )
+      Number.isFinite(n)
 
         ? n
 
@@ -1848,7 +510,7 @@ function getVolumeCount(){
 }
 
 
-function textForVolume(text){
+function textForVolume(text) {
 
   return text || '';
 }
@@ -1863,7 +525,7 @@ function drawVolumeField(
   targetCanvas,
   current,
   total
-){
+) {
 
   const canvasWidth =
     targetCanvas.width;
@@ -1904,20 +566,14 @@ function drawVolumeField(
   const left =
     Math.round(
       centerX -
-      (
-        clearWidth /
-        2
-      )
+      clearWidth / 2
     );
 
 
   const top =
     Math.round(
       centerY -
-      (
-        clearHeight /
-        2
-      )
+      clearHeight / 2
     );
 
 
@@ -1955,23 +611,20 @@ function drawVolumeField(
     0.90;
 
 
-  while(
-    fontSize >
-    8
-  ){
+  while (
+    fontSize > 8
+  ) {
 
     targetCtx.font =
       `700 ${fontSize}px Arial, Helvetica, sans-serif`;
 
 
-    if(
+    if (
       targetCtx
-        .measureText(
-          value
-        )
+        .measureText(value)
         .width <=
       maxTextWidth
-    ){
+    ) {
 
       break;
     }
@@ -2010,54 +663,1421 @@ function drawVolumeField(
 
 
 /* =========================================================
-   BLOCO TELEFONE
+   BIBLIOTECAS DE CÓDIGO
    ========================================================= */
 
-function phoneDefaultBlock(){
+function barcodeLibrariesAvailable() {
 
-  return {
+  /*
+    IMPORTANTE:
 
-    x:
-      Math.round(
-        canvas.width *
-        0.54
-      ),
+    NÃO dependemos mais de
+    window.QRCode.
 
-    y:
-      Math.round(
-        canvas.height *
-        0.69
-      ),
+    Precisamos apenas:
 
-    width:
-      Math.round(
-        canvas.width *
-        0.31
-      ),
+    ZXingBrowser
+    JsBarcode
+  */
 
-    minHeight:
-      Math.round(
-        canvas.height *
-        0.055
-      ),
-
-    mode:
-      'phone',
-
-    fontScale:
-      1
-
-  };
+  return (
+    !!window.ZXingBrowser &&
+    typeof window.JsBarcode ===
+      'function'
+  );
 }
 
 
 /* =========================================================
-   CONTROLES
+   EXTRAIR O CÓDIGO DE 15 DÍGITOS
    ========================================================= */
 
-function updateSizeLabels(){
+function extractBarcodeValue(value) {
 
-  if(blockWidthInput){
+  const text =
+    String(
+      value || ''
+    )
+      .trim();
+
+
+  /*
+    Se o conteúdo do QR possuir:
+
+    577062760340001|....
+
+    utiliza o primeiro campo.
+  */
+  const firstField =
+    text
+      .split('|')[0]
+      .replace(
+        /\D/g,
+        ''
+      );
+
+
+  if (
+    firstField.length === 15
+  ) {
+
+    return firstField;
+  }
+
+
+  /*
+    Se o leitor encontrou somente
+    o CODE128.
+  */
+  const onlyDigits =
+    text.replace(
+      /\D/g,
+      ''
+    );
+
+
+  if (
+    onlyDigits.length === 15
+  ) {
+
+    return onlyDigits;
+  }
+
+
+  /*
+    Procura qualquer sequência
+    de exatamente 15 números
+    dentro do conteúdo.
+  */
+  const match =
+    text.match(
+      /\d{15}/
+    );
+
+
+  return match
+    ? match[0]
+    : '';
+}
+
+
+/* =========================================================
+   CRIAR RECORTE PARA LEITURA
+   ========================================================= */
+
+function createScanCanvas(
+  img,
+  field,
+  scale = 3,
+  threshold = false
+) {
+
+  const sourceWidth =
+    img.naturalWidth ||
+    img.width;
+
+
+  const sourceHeight =
+    img.naturalHeight ||
+    img.height;
+
+
+  const sx =
+    Math.max(
+      0,
+      Math.round(
+        sourceWidth *
+        field.x
+      )
+    );
+
+
+  const sy =
+    Math.max(
+      0,
+      Math.round(
+        sourceHeight *
+        field.y
+      )
+    );
+
+
+  const sw =
+    Math.max(
+      1,
+      Math.min(
+
+        sourceWidth -
+        sx,
+
+        Math.round(
+          sourceWidth *
+          field.width
+        )
+
+      )
+    );
+
+
+  const sh =
+    Math.max(
+      1,
+      Math.min(
+
+        sourceHeight -
+        sy,
+
+        Math.round(
+          sourceHeight *
+          field.height
+        )
+
+      )
+    );
+
+
+  const scanCanvas =
+    document.createElement(
+      'canvas'
+    );
+
+
+  scanCanvas.width =
+    Math.max(
+      1,
+      sw * scale
+    );
+
+
+  scanCanvas.height =
+    Math.max(
+      1,
+      sh * scale
+    );
+
+
+  const scanCtx =
+    scanCanvas.getContext(
+      '2d',
+      {
+        willReadFrequently: true
+      }
+    );
+
+
+  scanCtx.fillStyle =
+    '#ffffff';
+
+
+  scanCtx.fillRect(
+    0,
+    0,
+    scanCanvas.width,
+    scanCanvas.height
+  );
+
+
+  /*
+    Não suaviza linhas.
+  */
+  scanCtx.imageSmoothingEnabled =
+    false;
+
+
+  scanCtx.drawImage(
+    img,
+
+    sx,
+    sy,
+    sw,
+    sh,
+
+    0,
+    0,
+    scanCanvas.width,
+    scanCanvas.height
+  );
+
+
+  /*
+    Segunda tentativa:
+    preto e branco forte.
+  */
+  if (threshold) {
+
+    try {
+
+      const imageData =
+        scanCtx.getImageData(
+          0,
+          0,
+          scanCanvas.width,
+          scanCanvas.height
+        );
+
+
+      const data =
+        imageData.data;
+
+
+      for (
+        let i = 0;
+        i < data.length;
+        i += 4
+      ) {
+
+        const gray =
+          (
+            data[i] * 0.299
+          ) +
+          (
+            data[i + 1] * 0.587
+          ) +
+          (
+            data[i + 2] * 0.114
+          );
+
+
+        const v =
+          gray < 185
+            ? 0
+            : 255;
+
+
+        data[i] =
+          v;
+
+
+        data[i + 1] =
+          v;
+
+
+        data[i + 2] =
+          v;
+
+
+        data[i + 3] =
+          255;
+      }
+
+
+      scanCtx.putImageData(
+        imageData,
+        0,
+        0
+      );
+
+
+    } catch (error) {
+
+      console.warn(
+        '[TC Label Editor] Não foi possível reforçar o contraste.',
+        error
+      );
+
+    }
+  }
+
+
+  return scanCanvas;
+}
+
+
+/* =========================================================
+   DECODIFICAR RESULTADO
+   ========================================================= */
+
+async function decodeResult(
+  reader,
+  source,
+  mode = 'canvas'
+) {
+
+  try {
+
+    const result =
+
+      mode === 'image'
+
+        ? await reader
+            .decodeFromImageElement(
+              source
+            )
+
+        : await reader
+            .decodeFromCanvas(
+              source
+            );
+
+
+    const raw =
+
+      typeof result?.getText ===
+      'function'
+
+        ? result.getText()
+
+        : String(
+            result?.text ||
+            ''
+          );
+
+
+    return {
+
+      raw,
+
+      code:
+        extractBarcodeValue(
+          raw
+        )
+
+    };
+
+
+  } catch (error) {
+
+    return {
+
+      raw: '',
+
+      code: ''
+
+    };
+  }
+}
+
+
+/* =========================================================
+   IDENTIFICAR CÓDIGO ORIGINAL
+   ========================================================= */
+
+async function detectOriginalBarcode(img) {
+
+  if (!img) {
+
+    return '';
+  }
+
+
+  /*
+    Se já existe leitura em andamento,
+    aguarda a mesma.
+  */
+  if (
+    barcodeStatus ===
+      'loading' &&
+    barcodeDetectionPromise
+  ) {
+
+    return barcodeDetectionPromise;
+  }
+
+
+  if (
+    !window.ZXingBrowser
+  ) {
+
+    originalBarcode =
+      '';
+
+
+    barcodeStatus =
+      'error';
+
+
+    console.error(
+      '[TC Label Editor] ZXing não foi carregado pelo index.html.'
+    );
+
+
+    return '';
+  }
+
+
+  const targetImage =
+    img;
+
+
+  originalBarcode =
+    '';
+
+
+  barcodeStatus =
+    'loading';
+
+
+  const task =
+    (async () => {
+
+
+      try {
+
+
+        /* =================================================
+           1. PRIMEIRO TENTA O QR GRANDE
+           ================================================= */
+
+
+        if (
+          window
+            .ZXingBrowser
+            .BrowserQRCodeReader
+        ) {
+
+
+          const qrReader =
+            new window
+              .ZXingBrowser
+              .BrowserQRCodeReader();
+
+
+          /*
+            TENTATIVA NA IMAGEM COMPLETA
+          */
+          const fullQr =
+            await decodeResult(
+              qrReader,
+              targetImage,
+              'image'
+            );
+
+
+          if (
+            fullQr.code &&
+            originalImage ===
+              targetImage
+          ) {
+
+
+            originalBarcode =
+              fullQr.code;
+
+
+            barcodeStatus =
+              'ready';
+
+
+            console.info(
+              '[TC Label Editor] Código identificado pelo QR:',
+              originalBarcode
+            );
+
+
+            return originalBarcode;
+          }
+
+
+
+          /*
+            TENTATIVAS EM RECORTES DO QR
+          */
+          for (
+            const field
+            of QR_SCAN_FIELDS
+          ) {
+
+
+            for (
+              const scale
+              of [2, 3, 4]
+            ) {
+
+
+              for (
+                const threshold
+                of [false, true]
+              ) {
+
+
+                const scanCanvas =
+                  createScanCanvas(
+                    targetImage,
+                    field,
+                    scale,
+                    threshold
+                  );
+
+
+                const qr =
+                  await decodeResult(
+                    qrReader,
+                    scanCanvas,
+                    'canvas'
+                  );
+
+
+                if (
+                  qr.code &&
+                  originalImage ===
+                    targetImage
+                ) {
+
+
+                  originalBarcode =
+                    qr.code;
+
+
+                  barcodeStatus =
+                    'ready';
+
+
+                  console.info(
+                    '[TC Label Editor] Código identificado pelo QR recortado:',
+                    originalBarcode
+                  );
+
+
+                  return originalBarcode;
+                }
+
+              }
+            }
+          }
+        }
+
+
+
+        /* =================================================
+           2. FALLBACK:
+           TENTA O CODE128 INFERIOR
+           ================================================= */
+
+
+        const OneDReader =
+
+          window
+            .ZXingBrowser
+            .BrowserMultiFormatOneDReader
+
+          ||
+
+          window
+            .ZXingBrowser
+            .BrowserMultiFormatReader;
+
+
+        if (OneDReader) {
+
+
+          const oneDReader =
+            new OneDReader();
+
+
+          /*
+            IMAGEM COMPLETA
+          */
+          const fullBarcode =
+            await decodeResult(
+              oneDReader,
+              targetImage,
+              'image'
+            );
+
+
+          if (
+            fullBarcode.code &&
+            originalImage ===
+              targetImage
+          ) {
+
+
+            originalBarcode =
+              fullBarcode.code;
+
+
+            barcodeStatus =
+              'ready';
+
+
+            console.info(
+              '[TC Label Editor] Código identificado pelo barcode:',
+              originalBarcode
+            );
+
+
+            return originalBarcode;
+          }
+
+
+
+          /*
+            RECORTES DO RODAPÉ
+          */
+          for (
+            const field
+            of BARCODE_SCAN_FIELDS
+          ) {
+
+
+            for (
+              const scale
+              of [2, 3, 4, 5]
+            ) {
+
+
+              for (
+                const threshold
+                of [false, true]
+              ) {
+
+
+                const scanCanvas =
+                  createScanCanvas(
+                    targetImage,
+                    field,
+                    scale,
+                    threshold
+                  );
+
+
+                const barcode =
+                  await decodeResult(
+                    oneDReader,
+                    scanCanvas,
+                    'canvas'
+                  );
+
+
+                if (
+                  barcode.code &&
+                  originalImage ===
+                    targetImage
+                ) {
+
+
+                  originalBarcode =
+                    barcode.code;
+
+
+                  barcodeStatus =
+                    'ready';
+
+
+                  console.info(
+                    '[TC Label Editor] Código identificado no rodapé:',
+                    originalBarcode
+                  );
+
+
+                  return originalBarcode;
+                }
+
+              }
+            }
+          }
+        }
+
+
+
+        /*
+          NÃO IDENTIFICOU.
+        */
+        if (
+          originalImage ===
+          targetImage
+        ) {
+
+
+          originalBarcode =
+            '';
+
+
+          barcodeStatus =
+            'error';
+        }
+
+
+        console.warn(
+          '[TC Label Editor] Código da etiqueta não identificado.'
+        );
+
+
+        return '';
+
+
+      } catch (error) {
+
+
+        if (
+          originalImage ===
+          targetImage
+        ) {
+
+
+          originalBarcode =
+            '';
+
+
+          barcodeStatus =
+            'error';
+        }
+
+
+        console.error(
+          '[TC Label Editor] Erro ao identificar o código:',
+          error
+        );
+
+
+        return '';
+      }
+
+    })();
+
+
+  barcodeDetectionPromise =
+    task;
+
+
+  try {
+
+    return await task;
+
+
+  } finally {
+
+
+    if (
+      barcodeDetectionPromise ===
+      task
+    ) {
+
+
+      barcodeDetectionPromise =
+        null;
+    }
+  }
+}
+
+
+/* =========================================================
+   CRIAR NUMERAÇÃO POR VOLUME
+   ========================================================= */
+
+function barcodeForVolume(
+  volumeIndex
+) {
+
+  const clean =
+    extractBarcodeValue(
+      originalBarcode
+    );
+
+
+  if (!clean) {
+
+    return '';
+  }
+
+
+  /*
+    Exemplo:
+
+    ORIGINAL:
+    577062760340001
+
+    BASE:
+    57706276034
+  */
+  const base =
+    clean.slice(
+      0,
+      -4
+    );
+
+
+  /*
+    Volume 1 = 0001
+    Volume 2 = 0002
+    Volume 3 = 0003
+  */
+  const sequence =
+    String(
+      volumeIndex
+    )
+      .padStart(
+        4,
+        '0'
+      );
+
+
+  return `${base}${sequence}`;
+}
+
+
+/* =========================================================
+   DESENHAR O NOVO CODE128
+   ========================================================= */
+
+function drawBarcodeField(
+  targetCtx,
+  targetCanvas,
+  value
+) {
+
+  if (
+    !value ||
+    typeof window.JsBarcode !==
+      'function'
+  ) {
+
+    return;
+  }
+
+
+  const fieldX =
+    Math.round(
+      targetCanvas.width *
+      BARCODE_FIELD.x
+    );
+
+
+  const fieldY =
+    Math.round(
+      targetCanvas.height *
+      BARCODE_FIELD.y
+    );
+
+
+  const fieldWidth =
+    Math.round(
+      targetCanvas.width *
+      BARCODE_FIELD.width
+    );
+
+
+  const fieldHeight =
+    Math.round(
+      targetCanvas.height *
+      BARCODE_FIELD.height
+    );
+
+
+  const barcodeCanvas =
+    document.createElement(
+      'canvas'
+    );
+
+
+  /*
+    Ajusta a geração proporcionalmente
+    à resolução da etiqueta.
+  */
+  const moduleWidth =
+    Math.max(
+      1.5,
+      targetCanvas.width *
+      0.0036
+    );
+
+
+  const barHeight =
+    Math.max(
+      22,
+      Math.round(
+        fieldHeight *
+        0.52
+      )
+    );
+
+
+  const fontSize =
+    Math.max(
+      10,
+      Math.round(
+        fieldHeight *
+        0.19
+      )
+    );
+
+
+  window.JsBarcode(
+    barcodeCanvas,
+    value,
+    {
+
+      format:
+        'CODE128',
+
+      width:
+        moduleWidth,
+
+      height:
+        barHeight,
+
+      displayValue:
+        true,
+
+      font:
+        'Arial',
+
+      fontSize,
+
+      textAlign:
+        'center',
+
+      textPosition:
+        'bottom',
+
+      textMargin:
+        Math.max(
+          1,
+          Math.round(
+            fieldHeight *
+            0.015
+          )
+        ),
+
+      margin:
+        0,
+
+      background:
+        '#ffffff',
+
+      lineColor:
+        '#000000'
+
+    }
+  );
+
+
+  /*
+    Se necessário,
+    reduz para caber no campo.
+  */
+  const fitScale =
+    Math.min(
+
+      1,
+
+      (
+        fieldWidth *
+        0.96
+      ) /
+      barcodeCanvas.width,
+
+      (
+        fieldHeight *
+        0.96
+      ) /
+      barcodeCanvas.height
+
+    );
+
+
+  const drawWidth =
+    Math.max(
+      1,
+      Math.round(
+        barcodeCanvas.width *
+        fitScale
+      )
+    );
+
+
+  const drawHeight =
+    Math.max(
+      1,
+      Math.round(
+        barcodeCanvas.height *
+        fitScale
+      )
+    );
+
+
+  const drawX =
+    Math.round(
+      fieldX +
+      (
+        fieldWidth -
+        drawWidth
+      ) /
+      2
+    );
+
+
+  const drawY =
+    Math.round(
+      fieldY +
+      (
+        fieldHeight -
+        drawHeight
+      ) /
+      2
+    );
+
+
+  targetCtx.save();
+
+
+  /*
+    COBRE O BARCODE E
+    O NÚMERO ANTIGOS.
+  */
+  targetCtx.fillStyle =
+    '#ffffff';
+
+
+  targetCtx.fillRect(
+    fieldX,
+    fieldY,
+    fieldWidth,
+    fieldHeight
+  );
+
+
+  targetCtx.imageSmoothingEnabled =
+    false;
+
+
+  /*
+    DESENHA O NOVO.
+  */
+  targetCtx.drawImage(
+    barcodeCanvas,
+
+    0,
+    0,
+    barcodeCanvas.width,
+    barcodeCanvas.height,
+
+    drawX,
+    drawY,
+    drawWidth,
+    drawHeight
+  );
+
+
+  targetCtx.restore();
+}
+
+
+/* =========================================================
+   VALIDAR ANTES DE IMPRIMIR / BAIXAR
+   ========================================================= */
+
+async function prepareBarcodeForOutput(
+  totalVolumes
+) {
+
+  if (!originalImage) {
+
+    return false;
+  }
+
+
+  if (
+    !barcodeLibrariesAvailable()
+  ) {
+
+    alert(
+      'As bibliotecas de leitura e código de barras não foram carregadas.\n\n' +
+      'Verifique a conexão e recarregue a página com Ctrl + F5.'
+    );
+
+
+    return false;
+  }
+
+
+  /*
+    Se já está lendo,
+    espera terminar.
+  */
+  if (
+    barcodeStatus ===
+      'loading' &&
+    barcodeDetectionPromise
+  ) {
+
+
+    await barcodeDetectionPromise;
+  }
+
+
+  /*
+    Se ainda não identificou,
+    tenta novamente.
+  */
+  if (
+    !originalBarcode
+  ) {
+
+
+    await detectOriginalBarcode(
+      originalImage
+    );
+
+
+    drawLabel();
+  }
+
+
+  /*
+    Para múltiplos volumes
+    é obrigatório identificar a base.
+  */
+  if (
+    totalVolumes > 1 &&
+    !originalBarcode
+  ) {
+
+
+    alert(
+      'Não consegui identificar o código da etiqueta.\n\n' +
+      'O sistema tentou ler primeiro o QR Code e depois o código de barras inferior.\n\n' +
+      'Cole a etiqueta completa, com boa resolução, e tente novamente.'
+    );
+
+
+    return false;
+  }
+
+
+  return true;
+}
+
+
+/* =========================================================
+   CARREGAR IMAGEM
+   ========================================================= */
+
+function loadImageFromFile(file) {
+
+  if (
+    !file ||
+    !file.type.startsWith(
+      'image/'
+    )
+  ) {
+
+    return;
+  }
+
+
+  const reader =
+    new FileReader();
+
+
+  reader.onload =
+    () => {
+
+
+      const img =
+        new Image();
+
+
+      img.onload =
+        () => {
+
+
+          originalImage =
+            img;
+
+
+          originalBarcode =
+            '';
+
+
+          barcodeStatus =
+            'idle';
+
+
+          barcodeDetectionPromise =
+            null;
+
+
+          canvas.width =
+            originalImage.width;
+
+
+          canvas.height =
+            originalImage.height;
+
+
+          block =
+            defaultBlock();
+
+
+          syncControlsFromBlock();
+
+          drawLabel();
+
+
+          pasteImageArea
+            .classList
+            .add(
+              'active'
+            );
+
+
+          pasteImageArea.innerHTML =
+            '<div class="paste-icon">✅</div>' +
+            '<strong>Etiqueta colada</strong>' +
+            '<small>Identificando código da etiqueta...</small>';
+
+
+          /*
+            Inicia automaticamente a leitura.
+          */
+          detectOriginalBarcode(
+            originalImage
+          )
+          .then(
+            value => {
+
+
+              if (
+                originalImage !==
+                img
+              ) {
+
+                return;
+              }
+
+
+              if (value) {
+
+
+                pasteImageArea.innerHTML =
+                  '<div class="paste-icon">✅</div>' +
+                  '<strong>Etiqueta colada</strong>' +
+                  `<small>Código identificado: ${value}</small>`;
+
+
+              } else {
+
+
+                pasteImageArea.innerHTML =
+                  '<div class="paste-icon">⚠️</div>' +
+                  '<strong>Etiqueta colada</strong>' +
+                  '<small>Código ainda não identificado</small>';
+              }
+
+
+              drawLabel();
+
+            }
+          );
+
+        };
+
+
+      img.src =
+        reader.result;
+
+    };
+
+
+  reader.readAsDataURL(
+    file
+  );
+}
+
+
+/* =========================================================
+   COLAR IMAGEM
+   ========================================================= */
+
+function handlePaste(e) {
+
+  const items =
+    e.clipboardData?.items ||
+    [];
+
+
+  for (
+    const item
+    of items
+  ) {
+
+
+    if (
+      item.type.startsWith(
+        'image/'
+      )
+    ) {
+
+
+      e.preventDefault();
+
+
+      loadImageFromFile(
+        item.getAsFile()
+      );
+
+
+      return;
+    }
+  }
+}
+
+
+document.addEventListener(
+  'paste',
+  e => {
+
+
+    if (
+      document.activeElement ===
+      addressText
+    ) {
+
+
+      return;
+    }
+
+
+    handlePaste(e);
+
+  }
+);
+
+
+pasteImageArea.addEventListener(
+  'paste',
+  handlePaste
+);
+
+
+pasteImageArea.addEventListener(
+  'click',
+  () =>
+    pasteImageArea.focus()
+);
+
+
+document
+  .getElementById(
+    'btnFile'
+  )
+  .addEventListener(
+    'click',
+    () =>
+      fileInput.click()
+  );
+
+
+fileInput.addEventListener(
+  'change',
+  () =>
+    loadImageFromFile(
+      fileInput.files[0]
+    )
+);
+
+
+/* =========================================================
+   CONTROLES DE TAMANHO
+   ========================================================= */
+
+function updateSizeLabels() {
+
+  if (
+    blockWidthInput
+  ) {
+
 
     document
       .getElementById(
@@ -2068,7 +2088,10 @@ function updateSizeLabels(){
   }
 
 
-  if(blockHeightInput){
+  if (
+    blockHeightInput
+  ) {
+
 
     document
       .getElementById(
@@ -2079,7 +2102,10 @@ function updateSizeLabels(){
   }
 
 
-  if(fontScaleInput){
+  if (
+    fontScaleInput
+  ) {
+
 
     document
       .getElementById(
@@ -2091,12 +2117,13 @@ function updateSizeLabels(){
 }
 
 
-function syncControlsFromBlock(){
+function syncControlsFromBlock() {
 
-  if(
+  if (
     !canvas.width ||
     !block
-  ){
+  ) {
+
 
     return;
   }
@@ -2122,7 +2149,10 @@ function syncControlsFromBlock(){
     );
 
 
-  if(blockWidthInput){
+  if (
+    blockWidthInput
+  ) {
+
 
     blockWidthInput.value =
       Math.max(
@@ -2133,11 +2163,15 @@ function syncControlsFromBlock(){
           +blockWidthInput.max,
           w
         )
+
       );
   }
 
 
-  if(blockHeightInput){
+  if (
+    blockHeightInput
+  ) {
+
 
     blockHeightInput.value =
       Math.max(
@@ -2148,11 +2182,15 @@ function syncControlsFromBlock(){
           +blockHeightInput.max,
           h
         )
+
       );
   }
 
 
-  if(fontScaleInput){
+  if (
+    fontScaleInput
+  ) {
+
 
     fontScaleInput.value =
       Math.round(
@@ -2169,12 +2207,13 @@ function syncControlsFromBlock(){
 }
 
 
-function applySizeControls(){
+function applySizeControls() {
 
-  if(
+  if (
     !originalImage ||
     !block
-  ){
+  ) {
+
 
     return;
   }
@@ -2231,6 +2270,7 @@ function applySizeControls(){
         block.width,
 
         block.x
+
       )
     );
 
@@ -2247,6 +2287,7 @@ function applySizeControls(){
         ),
 
         block.y
+
       )
     );
 
@@ -2257,15 +2298,21 @@ function applySizeControls(){
 }
 
 
-function setPhonePreset(){
+function setPhonePreset() {
 
-  if(!originalImage){
+  if (
+    !originalImage
+  ) {
+
 
     return;
   }
 
 
-  if(!block){
+  if (
+    !block
+  ) {
+
 
     block =
       phoneDefaultBlock();
@@ -2319,293 +2366,10 @@ function setPhonePreset(){
 
 
 /* =========================================================
-   QUEBRA DE LINHA
+   DESENHAR TELEFONE
    ========================================================= */
 
-function wrapText(
-  context,
-  text,
-  maxWidth
-){
-
-  const lines =
-    [];
-
-
-  text
-    .split('\n')
-    .forEach(
-      raw => {
-
-
-        if(
-          raw.trim() ===
-          ''
-        ){
-
-          lines.push(
-            ''
-          );
-
-
-          return;
-        }
-
-
-        const words =
-          raw.split(
-            /\s+/
-          );
-
-
-        let line =
-          '';
-
-
-        words.forEach(
-          word => {
-
-
-            const test =
-              line
-
-                ? `${line} ${word}`
-
-                : word;
-
-
-            if(
-              context
-                .measureText(
-                  test
-                )
-                .width >
-                maxWidth &&
-              line
-            ){
-
-              lines.push(
-                line
-              );
-
-
-              line =
-                word;
-
-
-            } else {
-
-              line =
-                test;
-            }
-
-          }
-        );
-
-
-        lines.push(
-          line
-        );
-
-      }
-    );
-
-
-  return lines;
-}
-
-
-/* =========================================================
-   PRÉ-VISUALIZAÇÃO
-   ========================================================= */
-
-function drawLabel(){
-
-  if(!originalImage){
-
-    canvas.width =
-      620;
-
-
-    canvas.height =
-      850;
-
-
-    ctx.clearRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-
-    emptyState.style.display =
-      'block';
-
-
-    return;
-  }
-
-
-  emptyState.style.display =
-    'none';
-
-
-  canvas.width =
-    originalImage.width;
-
-
-  canvas.height =
-    originalImage.height;
-
-
-  ctx.clearRect(
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
-
-
-  ctx.drawImage(
-    originalImage,
-    0,
-    0
-  );
-
-
-  if(!block){
-
-    block =
-      defaultBlock();
-  }
-
-
-  const text =
-    normalizeIfNeeded(
-
-      addressText.value ||
-      lastAppliedText ||
-      ''
-
-    );
-
-
-  const totalVolumes =
-    getVolumeCount();
-
-
-  const displayText =
-    textForVolume(
-      text
-    );
-
-
-  /*
-    ENDEREÇO / TELEFONE
-  */
-  if(
-    text.trim()
-  ){
-
-    if(
-      isPhoneOnly(
-        text
-      )
-    ){
-
-      if(
-        !block ||
-        block.mode !==
-          'phone'
-      ){
-
-        block =
-          phoneDefaultBlock();
-      }
-
-
-      drawPhoneOnlyBlock(
-        displayText
-      );
-
-
-    } else {
-
-      if(
-        !block ||
-        block.mode ===
-          'phone'
-      ){
-
-        block =
-          defaultBlock();
-      }
-
-
-      drawCorrectAddressBlock(
-        displayText
-      );
-    }
-  }
-
-
-  /*
-    PRÉVIA:
-    SEMPRE VOLUME 1.
-  */
-  drawVolumeField(
-    ctx,
-    canvas,
-    1,
-    totalVolumes
-  );
-
-
-  const previewBarcode =
-    barcodeForVolume(
-      1
-    );
-
-
-  if(previewBarcode){
-
-    drawBarcodeField(
-      ctx,
-      canvas,
-      previewBarcode
-    );
-  }
-
-
-  const previewQrPayload =
-    qrPayloadForVolume(
-      1,
-      totalVolumes
-    );
-
-
-  if(previewQrPayload){
-
-    drawQrField(
-      ctx,
-      canvas,
-      previewQrPayload
-    );
-  }
-
-
-  setZoom(
-    zoom
-  );
-}
-
-
-/* =========================================================
-   TELEFONE
-   ========================================================= */
-
-function drawPhoneOnlyBlock(text){
+function drawPhoneOnlyBlock(text) {
 
   const pos =
     block ||
@@ -2652,10 +2416,8 @@ function drawPhoneOnlyBlock(text){
 
   const contentWidth =
     pos.width -
-    (
-      pad *
-      2
-    );
+    pad *
+    2;
 
 
   const lines =
@@ -2671,10 +2433,8 @@ function drawPhoneOnlyBlock(text){
 
       pos.minHeight,
 
-      (
-        pad *
-        2
-      ) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -2768,10 +2528,10 @@ function drawPhoneOnlyBlock(text){
 
 
 /* =========================================================
-   ENDEREÇO
+   DESENHAR ENDEREÇO
    ========================================================= */
 
-function drawCorrectAddressBlock(text){
+function drawCorrectAddressBlock(text) {
 
   const pos =
     block ||
@@ -2827,10 +2587,8 @@ function drawCorrectAddressBlock(text){
 
   const contentWidth =
     pos.width -
-    (
-      pad *
-      2
-    );
+    pad *
+    2;
 
 
   const lines =
@@ -2846,10 +2604,8 @@ function drawCorrectAddressBlock(text){
 
       pos.minHeight,
 
-      (
-        pad *
-        2
-      ) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -2934,10 +2690,197 @@ function drawCorrectAddressBlock(text){
 
 
 /* =========================================================
+   PRÉ-VISUALIZAÇÃO
+   ========================================================= */
+
+function drawLabel() {
+
+  if (
+    !originalImage
+  ) {
+
+
+    canvas.width =
+      620;
+
+
+    canvas.height =
+      850;
+
+
+    ctx.clearRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+
+    emptyState.style.display =
+      'block';
+
+
+    return;
+  }
+
+
+  emptyState.style.display =
+    'none';
+
+
+  canvas.width =
+    originalImage.width;
+
+
+  canvas.height =
+    originalImage.height;
+
+
+  ctx.clearRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+
+  ctx.drawImage(
+    originalImage,
+    0,
+    0
+  );
+
+
+  if (
+    !block
+  ) {
+
+
+    block =
+      defaultBlock();
+  }
+
+
+  const text =
+    normalizeIfNeeded(
+
+      addressText.value ||
+      lastAppliedText ||
+      ''
+
+    );
+
+
+  const totalVolumes =
+    getVolumeCount();
+
+
+  const displayText =
+    textForVolume(
+      text
+    );
+
+
+  /*
+    CORREÇÃO DE ENDEREÇO / TELEFONE
+  */
+  if (
+    text.trim()
+  ) {
+
+
+    if (
+      isPhoneOnly(
+        text
+      )
+    ) {
+
+
+      if (
+        !block ||
+        block.mode !==
+          'phone'
+      ) {
+
+
+        block =
+          phoneDefaultBlock();
+      }
+
+
+      drawPhoneOnlyBlock(
+        displayText
+      );
+
+
+    } else {
+
+
+      if (
+        !block ||
+        block.mode ===
+          'phone'
+      ) {
+
+
+        block =
+          defaultBlock();
+      }
+
+
+      drawCorrectAddressBlock(
+        displayText
+      );
+
+    }
+  }
+
+
+  /*
+    PRÉVIA SEMPRE É O VOLUME 1.
+  */
+  drawVolumeField(
+    ctx,
+    canvas,
+    1,
+    totalVolumes
+  );
+
+
+  /*
+    Se já identificou o código,
+    mostra o barcode correspondente.
+  */
+  const previewBarcode =
+    barcodeForVolume(
+      1
+    );
+
+
+  if (
+    previewBarcode
+  ) {
+
+
+    drawBarcodeField(
+      ctx,
+      canvas,
+      previewBarcode
+    );
+  }
+
+
+  setZoom(
+    zoom
+  );
+}
+
+
+/* =========================================================
    APLICAR
    ========================================================= */
 
-function applyBlock(){
+function applyBlock() {
 
   lastAppliedText =
     addressText.value;
@@ -2951,17 +2894,13 @@ function applyBlock(){
    LIMPAR
    ========================================================= */
 
-function clearAll(){
+function clearAll() {
 
   originalImage =
     null;
 
 
   originalBarcode =
-    '';
-
-
-  originalQrPayload =
     '';
 
 
@@ -2985,7 +2924,10 @@ function clearAll(){
     '';
 
 
-  if(volumeCountInput){
+  if (
+    volumeCountInput
+  ) {
+
 
     volumeCountInput.value =
       '1';
@@ -3010,15 +2952,19 @@ function clearAll(){
 
 
 /* =========================================================
-   EXPORTAR TEXTO
+   EXPORTAR BLOCO DE TEXTO
    ========================================================= */
+
+const EXPORT_SCALE =
+  4;
+
 
 function drawExportBlock(
   exportCtx,
   exportCanvas,
   exportBlock,
   text
-){
+) {
 
   const isPhone =
     isPhoneOnly(
@@ -3052,16 +2998,20 @@ function drawExportBlock(
       EXPORT_SCALE,
 
       Math.round(
+
         exportCanvas.width *
+
         (
           isPhone
             ? 0.023
             : 0.024
         ) *
+
         (
           exportBlock.fontScale ||
           1
         )
+
       )
 
     );
@@ -3087,10 +3037,8 @@ function drawExportBlock(
 
   const contentWidth =
     exportBlock.width -
-    (
-      pad *
-      2
-    );
+    pad *
+    2;
 
 
   const lines =
@@ -3106,10 +3054,8 @@ function drawExportBlock(
 
       exportBlock.minHeight,
 
-      (
-        pad *
-        2
-      ) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -3138,12 +3084,15 @@ function drawExportBlock(
         : 2,
 
       Math.round(
+
         exportCanvas.width *
+
         (
           isPhone
             ? 0.0025
             : 0.004
         )
+
       )
 
     );
@@ -3195,18 +3144,14 @@ function drawExportBlock(
 
 
 /* =========================================================
-   EXPORTAÇÃO
+   RENDERIZAR ETIQUETA PARA SAÍDA
    ========================================================= */
-
-const EXPORT_SCALE =
-  4;
-
 
 function renderExportCanvas(
   scale = EXPORT_SCALE,
   volumeIndex = 1,
   totalVolumes = 1
-){
+) {
 
   const exportCanvas =
     document.createElement(
@@ -3242,20 +3187,30 @@ function renderExportCanvas(
   );
 
 
+  /*
+    IMAGEM ORIGINAL
+  */
   exportCtx.drawImage(
     originalImage,
+
     0,
     0,
+
     exportCanvas.width,
     exportCanvas.height
   );
 
 
+  /*
+    CORREÇÃO DE ENDEREÇO / TELEFONE
+  */
   const baseText =
     normalizeIfNeeded(
+
       addressText.value ||
       lastAppliedText ||
       ''
+
     );
 
 
@@ -3265,10 +3220,11 @@ function renderExportCanvas(
     );
 
 
-  if(
+  if (
     baseText.trim() &&
     block
-  ){
+  ) {
+
 
     const exportBlock = {
 
@@ -3330,7 +3286,7 @@ function renderExportCanvas(
 
 
   /*
-    VOLUME
+    NUMERAÇÃO DO VOLUME
   */
   drawVolumeField(
     exportCtx,
@@ -3341,7 +3297,7 @@ function renderExportCanvas(
 
 
   /*
-    CODE128
+    NOVO CODE128
   */
   const volumeBarcode =
     barcodeForVolume(
@@ -3349,32 +3305,15 @@ function renderExportCanvas(
     );
 
 
-  if(volumeBarcode){
+  if (
+    volumeBarcode
+  ) {
+
 
     drawBarcodeField(
       exportCtx,
       exportCanvas,
       volumeBarcode
-    );
-  }
-
-
-  /*
-    QR CODE
-  */
-  const volumeQrPayload =
-    qrPayloadForVolume(
-      volumeIndex,
-      totalVolumes
-    );
-
-
-  if(volumeQrPayload){
-
-    drawQrField(
-      exportCtx,
-      exportCanvas,
-      volumeQrPayload
     );
   }
 
@@ -3387,9 +3326,12 @@ function renderExportCanvas(
    BAIXAR PNG
    ========================================================= */
 
-async function downloadPNG(){
+async function downloadPNG() {
 
-  if(!originalImage){
+  if (
+    !originalImage
+  ) {
+
 
     alert(
       'Cole a etiqueta original antes de baixar.'
@@ -3410,16 +3352,22 @@ async function downloadPNG(){
     );
 
 
-  if(!ready){
+  if (
+    !ready
+  ) {
+
 
     return;
   }
 
 
-  if(
-    totalVolumes <=
-    1
-  ){
+  /*
+    SOMENTE 1 VOLUME
+  */
+  if (
+    totalVolumes <= 1
+  ) {
+
 
     const exportCanvas =
       renderExportCanvas(
@@ -3452,7 +3400,10 @@ async function downloadPNG(){
   }
 
 
-  const one =
+  /*
+    VÁRIOS VOLUMES
+  */
+  const first =
     renderExportCanvas(
       EXPORT_SCALE,
       1,
@@ -3474,14 +3425,18 @@ async function downloadPNG(){
 
 
   combined.width =
-    one.width;
+    first.width;
 
 
   combined.height =
+
     (
-      one.height *
+      first.height *
       totalVolumes
-    ) +
+    )
+
+    +
+
     (
       gap *
       (
@@ -3491,17 +3446,17 @@ async function downloadPNG(){
     );
 
 
-  const cctx =
+  const combinedCtx =
     combined.getContext(
       '2d'
     );
 
 
-  cctx.fillStyle =
+  combinedCtx.fillStyle =
     '#ffffff';
 
 
-  cctx.fillRect(
+  combinedCtx.fillRect(
     0,
     0,
     combined.width,
@@ -3509,11 +3464,15 @@ async function downloadPNG(){
   );
 
 
-  for(
+  /*
+    CRIA CADA VOLUME
+  */
+  for (
     let i = 1;
     i <= totalVolumes;
     i++
-  ){
+  ) {
+
 
     const page =
       renderExportCanvas(
@@ -3523,18 +3482,18 @@ async function downloadPNG(){
       );
 
 
-    cctx.drawImage(
+    combinedCtx.drawImage(
       page,
       0,
       (
-        i -
-        1
+        i - 1
       ) *
       (
-        one.height +
+        first.height +
         gap
       )
     );
+
   }
 
 
@@ -3559,12 +3518,15 @@ async function downloadPNG(){
 
 
 /* =========================================================
-   IMPRIMIR
+   IMPRESSÃO
    ========================================================= */
 
-async function printCanvas(){
+async function printCanvas() {
 
-  if(!originalImage){
+  if (
+    !originalImage
+  ) {
+
 
     alert(
       'Cole a etiqueta original antes de imprimir.'
@@ -3585,24 +3547,32 @@ async function printCanvas(){
     );
 
 
-  if(!ready){
+  if (
+    !ready
+  ) {
+
 
     return;
   }
 
 
-  if(
-    totalVolumes >
-    20
-  ){
+  if (
+    totalVolumes > 20
+  ) {
+
 
     const confirmed =
       window.confirm(
+
         `Serão impressas ${totalVolumes} etiquetas numeradas de 1/${totalVolumes} até ${totalVolumes}/${totalVolumes}. Deseja continuar?`
+
       );
 
 
-    if(!confirmed){
+    if (
+      !confirmed
+    ) {
+
 
       return;
     }
@@ -3617,11 +3587,16 @@ async function printCanvas(){
     [];
 
 
-  for(
+  /*
+    CADA VOLUME RECEBE
+    SUA PRÓPRIA NUMERAÇÃO.
+  */
+  for (
     let i = 1;
     i <= totalVolumes;
     i++
-  ){
+  ) {
+
 
     imgs.push(
 
@@ -3656,8 +3631,23 @@ async function printCanvas(){
     );
 
 
+  if (
+    !win
+  ) {
+
+
+    alert(
+      'O navegador bloqueou a janela de impressão. Libere pop-ups e tente novamente.'
+    );
+
+
+    return;
+  }
+
+
   win.document.write(`
 <!doctype html>
+
 <html>
 
 <head>
@@ -3729,12 +3719,12 @@ window.onload =
 
 
 /* =========================================================
-   POSIÇÃO DO PONTEIRO
+   PONTO DO MOUSE NO CANVAS
    ========================================================= */
 
-function canvasPoint(evt){
+function canvasPoint(evt) {
 
-  const r =
+  const rect =
     canvas.getBoundingClientRect();
 
 
@@ -3743,14 +3733,14 @@ function canvasPoint(evt){
     x:
       (
         evt.clientX -
-        r.left
+        rect.left
       ) /
       zoom,
 
     y:
       (
         evt.clientY -
-        r.top
+        rect.top
       ) /
       zoom
 
@@ -3767,23 +3757,22 @@ canvas.addEventListener(
   e => {
 
 
-    if(
+    if (
       !originalImage ||
       !block ||
       !addressText.value.trim()
-    ){
+    ) {
+
 
       return;
     }
 
 
     const p =
-      canvasPoint(
-        e
-      );
+      canvasPoint(e);
 
 
-    if(
+    if (
 
       p.x >=
         block.x &&
@@ -3802,7 +3791,8 @@ canvas.addEventListener(
           block.minHeight
         )
 
-    ){
+    ) {
+
 
       drag.active =
         true;
@@ -3837,16 +3827,17 @@ canvas.addEventListener(
   e => {
 
 
-    if(!drag.active){
+    if (
+      !drag.active
+    ) {
+
 
       return;
     }
 
 
     const p =
-      canvasPoint(
-        e
-      );
+      canvasPoint(e);
 
 
     block.x =
@@ -3908,12 +3899,16 @@ canvas.addEventListener(
 
     try {
 
+
       canvas.releasePointerCapture(
         e.pointerId
       );
 
 
-    } catch(error){
+    } catch (error) {
+
+
+      // Ignora.
 
     }
 
@@ -3939,7 +3934,7 @@ canvas.addEventListener(
 
 
 /* =========================================================
-   BOTÕES
+   EVENTOS DOS BOTÕES
    ========================================================= */
 
 document
@@ -4000,8 +3995,7 @@ document
     'click',
     () =>
       setZoom(
-        zoom +
-        0.1
+        zoom + 0.1
       )
   );
 
@@ -4014,8 +4008,7 @@ document
     'click',
     () =>
       setZoom(
-        zoom -
-        0.1
+        zoom - 0.1
       )
   );
 
@@ -4059,7 +4052,8 @@ document
   el => {
 
 
-    if(el){
+    if (el) {
+
 
       el.addEventListener(
         'input',
@@ -4091,35 +4085,48 @@ document
    QUANTIDADE DE VOLUMES
    ========================================================= */
 
-if(volumeCountInput){
+if (
+  volumeCountInput
+) {
+
 
   volumeCountInput.addEventListener(
     'input',
     () => {
 
 
+      /*
+        Atualiza imediatamente
+        1/2, 1/3 etc.
+      */
       drawLabel();
 
 
-      if(
+      /*
+        Se aumentou quantidade
+        e o código ainda não foi lido,
+        tenta novamente.
+      */
+      if (
 
         originalImage &&
 
-        getVolumeCount() >
-          1 &&
+        getVolumeCount() > 1 &&
 
         !originalBarcode &&
 
         barcodeStatus !==
           'loading'
 
-      ){
+      ) {
+
 
         detectOriginalBarcode(
           originalImage
         )
         .then(
           () => {
+
 
             drawLabel();
 
