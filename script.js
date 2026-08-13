@@ -30,13 +30,16 @@ let manualSize = false;
    ========================================================= */
 
 /*
-  Exemplo real da etiqueta:
+  PADRÃO REAL DA ETIQUETA
 
   AWB:
   577-06276034
 
-  Base usada no barcode:
-  57706276034
+  Código inferior:
+  577062760340001
+
+  Estrutura:
+  57706276034 + 0001
 
   Volume 1:
   577062760340001
@@ -44,9 +47,8 @@ let manualSize = false;
   Volume 2:
   577062760340002
 
-  Portanto:
-  BASE = primeiros 11 dígitos
-  SEQUÊNCIA = últimos 4 dígitos
+  Volume 3:
+  577062760340003
 */
 
 let originalBarcode = '';
@@ -55,50 +57,53 @@ let barcodeDetectionPromise = null;
 
 
 /*
-  Regiões onde o sistema tentará localizar
-  o código de barras inferior.
+  REGIÕES DE BUSCA DO BARCODE
 
-  Usamos mais de uma região para aumentar
-  a chance de leitura em recortes diferentes.
+  O sistema tenta primeiro uma área ampla
+  e depois aproxima a busca do código inferior.
 */
 const BARCODE_SCAN_FIELDS = [
   {
-    x: 0.12,
-    y: 0.785,
-    width: 0.76,
-    height: 0.12
+    x: 0.03,
+    y: 0.70,
+    width: 0.94,
+    height: 0.25
   },
   {
     x: 0.08,
-    y: 0.76,
+    y: 0.75,
     width: 0.84,
+    height: 0.20
+  },
+  {
+    x: 0.12,
+    y: 0.78,
+    width: 0.76,
     height: 0.16
   },
   {
-    x: 0.04,
-    y: 0.73,
-    width: 0.92,
-    height: 0.21
+    x: 0.15,
+    y: 0.80,
+    width: 0.70,
+    height: 0.13
   }
 ];
 
 
 /*
-  Região onde o NOVO código será desenhado.
-
-  Essa posição corresponde ao código inferior
-  da etiqueta enviada.
+  LOCAL ONDE O NOVO BARCODE
+  SERÁ DESENHADO NA ETIQUETA.
 */
 const BARCODE_FIELD = {
-  x: 0.155,
-  y: 0.802,
-  width: 0.690,
-  height: 0.088
+  x: 0.145,
+  y: 0.805,
+  width: 0.710,
+  height: 0.098
 };
 
 
 /* =========================================================
-   VALIDAÇÃO DAS BIBLIOTECAS
+   VERIFICAR BIBLIOTECAS
    ========================================================= */
 
 function barcodeLibrariesAvailable() {
@@ -110,7 +115,31 @@ function barcodeLibrariesAvailable() {
 
 
 /* =========================================================
-   CRIAR RECORTE PARA LEITURA DO BARCODE
+   VALIDAR CÓDIGO LIDO
+   ========================================================= */
+
+function normalizeBarcodeValue(value) {
+  const digits = String(value || '')
+    .replace(/\D/g, '');
+
+  /*
+    Código esperado:
+    11 números da AWB
+    +
+    4 números do volume
+    =
+    15 números.
+  */
+  if (digits.length !== 15) {
+    return '';
+  }
+
+  return digits;
+}
+
+
+/* =========================================================
+   CRIAR IMAGEM PARA LEITURA
    ========================================================= */
 
 function createBarcodeScanCanvas(
@@ -125,40 +154,68 @@ function createBarcodeScanCanvas(
   const sourceHeight =
     img.naturalHeight || img.height;
 
+
   const sx = Math.max(
     0,
-    Math.round(sourceWidth * field.x)
+    Math.round(
+      sourceWidth * field.x
+    )
   );
+
 
   const sy = Math.max(
     0,
-    Math.round(sourceHeight * field.y)
+    Math.round(
+      sourceHeight * field.y
+    )
   );
+
 
   const sw = Math.max(
     1,
     Math.min(
       sourceWidth - sx,
-      Math.round(sourceWidth * field.width)
+      Math.round(
+        sourceWidth * field.width
+      )
     )
   );
+
 
   const sh = Math.max(
     1,
     Math.min(
       sourceHeight - sy,
-      Math.round(sourceHeight * field.height)
+      Math.round(
+        sourceHeight * field.height
+      )
     )
   );
 
-  const scanCanvas = document.createElement('canvas');
 
-  scanCanvas.width = sw * scale;
-  scanCanvas.height = sh * scale;
+  const scanCanvas =
+    document.createElement('canvas');
 
-  const scanCtx = scanCanvas.getContext('2d');
 
-  scanCtx.fillStyle = '#ffffff';
+  scanCanvas.width =
+    sw * scale;
+
+  scanCanvas.height =
+    sh * scale;
+
+
+  const scanCtx =
+    scanCanvas.getContext(
+      '2d',
+      {
+        willReadFrequently: true
+      }
+    );
+
+
+  scanCtx.fillStyle =
+    '#ffffff';
+
 
   scanCtx.fillRect(
     0,
@@ -167,7 +224,14 @@ function createBarcodeScanCanvas(
     scanCanvas.height
   );
 
-  scanCtx.imageSmoothingEnabled = false;
+
+  /*
+    Não suavizar.
+    Código de barras depende de linhas definidas.
+  */
+  scanCtx.imageSmoothingEnabled =
+    false;
+
 
   scanCtx.drawImage(
     img,
@@ -185,36 +249,53 @@ function createBarcodeScanCanvas(
 
 
   /*
-    Em uma segunda tentativa fazemos
-    preto e branco com contraste forte.
-
-    Isso ajuda quando a imagem foi colada
-    com resolução ou contraste menor.
+    Segunda tentativa:
+    converter para preto e branco.
   */
   if (useThreshold) {
     try {
-      const imageData = scanCtx.getImageData(
-        0,
-        0,
-        scanCanvas.width,
-        scanCanvas.height
-      );
+      const imageData =
+        scanCtx.getImageData(
+          0,
+          0,
+          scanCanvas.width,
+          scanCanvas.height
+        );
 
-      const data = imageData.data;
 
-      for (let i = 0; i < data.length; i += 4) {
+      const data =
+        imageData.data;
+
+
+      for (
+        let i = 0;
+        i < data.length;
+        i += 4
+      ) {
         const gray =
-          (data[i] * 0.299) +
-          (data[i + 1] * 0.587) +
-          (data[i + 2] * 0.114);
+          (
+            data[i] * 0.299
+          ) +
+          (
+            data[i + 1] * 0.587
+          ) +
+          (
+            data[i + 2] * 0.114
+          );
 
-        const value = gray < 175 ? 0 : 255;
+
+        const value =
+          gray < 185
+            ? 0
+            : 255;
+
 
         data[i] = value;
         data[i + 1] = value;
         data[i + 2] = value;
         data[i + 3] = 255;
       }
+
 
       scanCtx.putImageData(
         imageData,
@@ -224,43 +305,52 @@ function createBarcodeScanCanvas(
 
     } catch (error) {
       console.warn(
-        'Não foi possível aplicar contraste no barcode.',
+        '[TC Label Editor] Falha ao aplicar contraste.',
         error
       );
     }
   }
+
 
   return scanCanvas;
 }
 
 
 /* =========================================================
-   VALIDAR O VALOR LIDO
+   TENTAR DECODIFICAR UM CANVAS
    ========================================================= */
 
-function normalizeBarcodeValue(value) {
-  const digits = String(value || '')
-    .replace(/\D/g, '');
+async function tryDecodeBarcodeCanvas(
+  reader,
+  scanCanvas
+) {
+  try {
+    const result =
+      await reader.decodeFromCanvas(
+        scanCanvas
+      );
 
-  /*
-    Modelo atual:
 
-    11 dígitos da AWB sem hífen
-    +
-    4 dígitos da sequência
-    =
-    15 dígitos
-  */
-  if (digits.length !== 15) {
+    const rawValue =
+      typeof result?.getText === 'function'
+        ? result.getText()
+        : String(
+            result?.text || ''
+          );
+
+
+    return normalizeBarcodeValue(
+      rawValue
+    );
+
+  } catch (error) {
     return '';
   }
-
-  return digits;
 }
 
 
 /* =========================================================
-   LER AUTOMATICAMENTE O BARCODE ORIGINAL
+   LER BARCODE ORIGINAL
    ========================================================= */
 
 async function detectOriginalBarcode(img) {
@@ -268,9 +358,9 @@ async function detectOriginalBarcode(img) {
     return '';
   }
 
+
   /*
-    Se uma leitura já estiver acontecendo,
-    aguardamos a mesma leitura.
+    Já existe uma leitura acontecendo.
   */
   if (
     barcodeStatus === 'loading' &&
@@ -279,136 +369,268 @@ async function detectOriginalBarcode(img) {
     return barcodeDetectionPromise;
   }
 
+
   if (!barcodeLibrariesAvailable()) {
+    originalBarcode = '';
     barcodeStatus = 'error';
 
     console.error(
-      'ZXing ou JsBarcode não foram carregados pelo index.html.'
+      '[TC Label Editor] ZXing ou JsBarcode não carregados.'
     );
 
     return '';
   }
+
 
   const targetImage = img;
 
   originalBarcode = '';
   barcodeStatus = 'loading';
 
+
   const task = (async () => {
     try {
       const ReaderClass =
-        window.ZXingBrowser.BrowserMultiFormatOneDReader ||
-        window.ZXingBrowser.BrowserMultiFormatReader;
+        window.ZXingBrowser
+          .BrowserMultiFormatOneDReader ||
+        window.ZXingBrowser
+          .BrowserMultiFormatReader;
+
 
       if (!ReaderClass) {
         throw new Error(
-          'Leitor ZXing não encontrado.'
+          'Leitor ZXing indisponível.'
         );
       }
 
-      const reader = new ReaderClass();
+
+      const reader =
+        new ReaderClass();
 
 
       /*
-        Para cada região:
-        1ª tentativa = imagem normal
-        2ª tentativa = preto e branco
+        =====================================================
+        TENTATIVA 1
+        IMAGEM COMPLETA
+        =====================================================
       */
-      for (const field of BARCODE_SCAN_FIELDS) {
-        for (const threshold of [false, true]) {
-          try {
+
+      try {
+        const result =
+          await reader.decodeFromImageElement(
+            targetImage
+          );
+
+
+        const rawValue =
+          typeof result?.getText === 'function'
+            ? result.getText()
+            : String(
+                result?.text || ''
+              );
+
+
+        const value =
+          normalizeBarcodeValue(
+            rawValue
+          );
+
+
+        if (
+          value &&
+          originalImage === targetImage
+        ) {
+          originalBarcode = value;
+          barcodeStatus = 'ready';
+
+
+          console.log(
+            '[TC Label Editor] Barcode identificado na imagem:',
+            originalBarcode
+          );
+
+
+          return originalBarcode;
+        }
+
+      } catch (error) {
+        console.log(
+          '[TC Label Editor] Leitura completa não encontrou o CODE128.'
+        );
+      }
+
+
+      /*
+        =====================================================
+        TENTATIVA 2
+        REGIÕES DO RODAPÉ
+        =====================================================
+      */
+
+      for (
+        const field
+        of BARCODE_SCAN_FIELDS
+      ) {
+        /*
+          Testa diversas ampliações.
+        */
+        for (
+          const scale
+          of [2, 3, 4, 5]
+        ) {
+          /*
+            Primeiro imagem original.
+            Depois imagem preto/branco.
+          */
+          for (
+            const threshold
+            of [false, true]
+          ) {
             const scanCanvas =
               createBarcodeScanCanvas(
                 targetImage,
                 field,
-                3,
+                scale,
                 threshold
               );
 
-            /*
-              IMPORTANTE:
-              decodeFromCanvas é assíncrono.
-            */
-            const result =
-              await reader.decodeFromCanvas(
+
+            const value =
+              await tryDecodeBarcodeCanvas(
+                reader,
                 scanCanvas
               );
 
-            const rawValue =
-              typeof result?.getText === 'function'
-                ? result.getText()
-                : String(result?.text || '');
 
-            const value =
-              normalizeBarcodeValue(rawValue);
-
-
-            /*
-              Se outra etiqueta foi carregada
-              enquanto a leitura acontecia,
-              ignoramos o resultado antigo.
-            */
-            if (originalImage !== targetImage) {
-              return '';
-            }
-
-
-            if (value) {
+            if (
+              value &&
+              originalImage === targetImage
+            ) {
               originalBarcode = value;
               barcodeStatus = 'ready';
 
-              console.info(
+
+              console.log(
                 '[TC Label Editor] Barcode identificado:',
                 originalBarcode
               );
 
+
               return originalBarcode;
             }
-
-          } catch (error) {
-            /*
-              Não encontrou nessa tentativa.
-              Continua para a próxima região.
-            */
           }
         }
       }
 
 
-      if (originalImage === targetImage) {
+      /*
+        =====================================================
+        TENTATIVA 3
+        FAIXA INFERIOR COMPLETA
+        =====================================================
+      */
+
+      const fullBottomField = {
+        x: 0,
+        y: 0.65,
+        width: 1,
+        height: 0.35
+      };
+
+
+      for (
+        const scale
+        of [2, 3, 4]
+      ) {
+        for (
+          const threshold
+          of [false, true]
+        ) {
+          const scanCanvas =
+            createBarcodeScanCanvas(
+              targetImage,
+              fullBottomField,
+              scale,
+              threshold
+            );
+
+
+          const value =
+            await tryDecodeBarcodeCanvas(
+              reader,
+              scanCanvas
+            );
+
+
+          if (
+            value &&
+            originalImage === targetImage
+          ) {
+            originalBarcode = value;
+            barcodeStatus = 'ready';
+
+
+            console.log(
+              '[TC Label Editor] Barcode identificado no rodapé:',
+              originalBarcode
+            );
+
+
+            return originalBarcode;
+          }
+        }
+      }
+
+
+      /*
+        NÃO ENCONTROU.
+      */
+      if (
+        originalImage === targetImage
+      ) {
         originalBarcode = '';
         barcodeStatus = 'error';
       }
 
+
       console.warn(
-        '[TC Label Editor] Não foi possível identificar o código de barras inferior.'
+        '[TC Label Editor] Código de barras inferior não identificado.'
       );
+
 
       return '';
 
     } catch (error) {
-      if (originalImage === targetImage) {
+      if (
+        originalImage === targetImage
+      ) {
         originalBarcode = '';
         barcodeStatus = 'error';
       }
 
+
       console.error(
-        '[TC Label Editor] Erro ao ler código de barras:',
+        '[TC Label Editor] Erro ao identificar código:',
         error
       );
+
 
       return '';
     }
   })();
 
 
-  barcodeDetectionPromise = task;
+  barcodeDetectionPromise =
+    task;
+
 
   try {
     return await task;
 
   } finally {
-    if (barcodeDetectionPromise === task) {
+    if (
+      barcodeDetectionPromise === task
+    ) {
       barcodeDetectionPromise = null;
     }
   }
@@ -416,12 +638,17 @@ async function detectOriginalBarcode(img) {
 
 
 /* =========================================================
-   GERAR BARCODE DE CADA VOLUME
+   GERAR CÓDIGO POR VOLUME
    ========================================================= */
 
-function barcodeForVolume(volumeIndex) {
+function barcodeForVolume(
+  volumeIndex
+) {
   const clean =
-    normalizeBarcodeValue(originalBarcode);
+    normalizeBarcodeValue(
+      originalBarcode
+    );
+
 
   if (!clean) {
     return '';
@@ -431,32 +658,41 @@ function barcodeForVolume(volumeIndex) {
   /*
     Exemplo:
 
-    ORIGINAL
     577062760340001
 
-    REMOVE OS 4 ÚLTIMOS
+    remove 0001
+
     57706276034
   */
   const base =
-    clean.slice(0, -4);
+    clean.slice(
+      0,
+      -4
+    );
 
 
   /*
-    Volume 1 => 0001
-    Volume 2 => 0002
-    Volume 3 => 0003
+    1 -> 0001
+    2 -> 0002
+    3 -> 0003
   */
   const sequence =
     String(volumeIndex)
-      .padStart(4, '0');
+      .padStart(
+        4,
+        '0'
+      );
 
 
-  return base + sequence;
+  return (
+    base +
+    sequence
+  );
 }
 
 
 /* =========================================================
-   DESENHAR NOVO CODE128
+   DESENHAR NOVO BARCODE
    ========================================================= */
 
 function drawBarcodeField(
@@ -468,9 +704,13 @@ function drawBarcodeField(
     return;
   }
 
-  if (typeof window.JsBarcode !== 'function') {
+
+  if (
+    typeof window.JsBarcode !==
+    'function'
+  ) {
     console.error(
-      'JsBarcode não está disponível.'
+      '[TC Label Editor] JsBarcode indisponível.'
     );
 
     return;
@@ -483,17 +723,20 @@ function drawBarcodeField(
       BARCODE_FIELD.x
     );
 
+
   const fieldY =
     Math.round(
       targetCanvas.height *
       BARCODE_FIELD.y
     );
 
+
   const fieldWidth =
     Math.round(
       targetCanvas.width *
       BARCODE_FIELD.width
     );
+
 
   const fieldHeight =
     Math.round(
@@ -503,12 +746,13 @@ function drawBarcodeField(
 
 
   const barcodeCanvas =
-    document.createElement('canvas');
+    document.createElement(
+      'canvas'
+    );
 
 
   /*
-    Gera o novo CODE128
-    com o número correspondente ao volume.
+    GERAÇÃO CODE128
   */
   window.JsBarcode(
     barcodeCanvas,
@@ -517,7 +761,7 @@ function drawBarcodeField(
       format: 'CODE128',
 
       width: 2,
-      height: 32,
+      height: 34,
 
       displayValue: true,
 
@@ -526,7 +770,7 @@ function drawBarcodeField(
 
       textAlign: 'center',
       textPosition: 'bottom',
-      textMargin: 2,
+      textMargin: 1,
 
       margin: 0,
 
@@ -536,36 +780,40 @@ function drawBarcodeField(
   );
 
 
-  /*
-    Ajusta proporcionalmente para caber
-    no mesmo espaço da etiqueta original.
-  */
   const maxWidth =
     fieldWidth * 0.96;
+
 
   const maxHeight =
     fieldHeight * 0.96;
 
 
-  const scale = Math.min(
-    maxWidth / barcodeCanvas.width,
-    maxHeight / barcodeCanvas.height
-  );
+  const scale =
+    Math.min(
+      maxWidth /
+        barcodeCanvas.width,
+
+      maxHeight /
+        barcodeCanvas.height
+    );
 
 
   const drawWidth =
     Math.max(
       1,
       Math.round(
-        barcodeCanvas.width * scale
+        barcodeCanvas.width *
+        scale
       )
     );
+
 
   const drawHeight =
     Math.max(
       1,
       Math.round(
-        barcodeCanvas.height * scale
+        barcodeCanvas.height *
+        scale
       )
     );
 
@@ -573,13 +821,26 @@ function drawBarcodeField(
   const drawX =
     Math.round(
       fieldX +
-      ((fieldWidth - drawWidth) / 2)
+      (
+        (
+          fieldWidth -
+          drawWidth
+        ) /
+        2
+      )
     );
+
 
   const drawY =
     Math.round(
       fieldY +
-      ((fieldHeight - drawHeight) / 2)
+      (
+        (
+          fieldHeight -
+          drawHeight
+        ) /
+        2
+      )
     );
 
 
@@ -587,12 +848,11 @@ function drawBarcodeField(
 
 
   /*
-    Apaga SOMENTE o barcode e
-    o número antigos.
-
-    Não mexe nas bordas da etiqueta.
+    APAGA O BARCODE ANTIGO
   */
-  targetCtx.fillStyle = '#ffffff';
+  targetCtx.fillStyle =
+    '#ffffff';
+
 
   targetCtx.fillRect(
     fieldX,
@@ -602,9 +862,13 @@ function drawBarcodeField(
   );
 
 
-  targetCtx.imageSmoothingEnabled = false;
+  targetCtx.imageSmoothingEnabled =
+    false;
 
 
+  /*
+    DESENHA O NOVO.
+  */
   targetCtx.drawImage(
     barcodeCanvas,
 
@@ -625,36 +889,29 @@ function drawBarcodeField(
 
 
 /* =========================================================
-   VALIDAR ANTES DE IMPRIMIR / BAIXAR
+   PREPARAR BARCODE PARA SAÍDA
    ========================================================= */
 
-async function prepareBarcodeForOutput(totalVolumes) {
+async function prepareBarcodeForOutput(
+  totalVolumes
+) {
   if (!originalImage) {
     return false;
   }
 
 
-  /*
-    Para múltiplos volumes precisamos
-    obrigatoriamente das bibliotecas.
-  */
   if (!barcodeLibrariesAvailable()) {
-    if (totalVolumes > 1) {
-      alert(
-        'Não foi possível carregar o leitor de código de barras.\n\n' +
-        'Verifique se o index.html contém ZXing e JsBarcode antes do script.js.'
-      );
+    alert(
+      'As bibliotecas do código de barras não foram carregadas.\n\n' +
+      'Verifique o index.html.'
+    );
 
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
 
   /*
-    Se a leitura automática ainda estiver
-    acontecendo, aguardamos.
+    Aguarda leitura que já esteja ocorrendo.
   */
   if (
     barcodeStatus === 'loading' &&
@@ -665,22 +922,23 @@ async function prepareBarcodeForOutput(totalVolumes) {
 
 
   /*
-    Se ainda não temos código,
-    tentamos novamente.
+    Ainda não leu?
+    Faz nova tentativa.
   */
   if (!originalBarcode) {
     await detectOriginalBarcode(
       originalImage
     );
 
+
     drawLabel();
   }
 
 
   /*
-    Mais de um volume:
-    SEM barcode identificado,
-    NÃO vamos gerar códigos incorretos.
+    Vários volumes:
+    obrigatoriamente precisa saber
+    o código original.
   */
   if (
     totalVolumes > 1 &&
@@ -688,45 +946,54 @@ async function prepareBarcodeForOutput(totalVolumes) {
   ) {
     alert(
       'Não consegui identificar o código de barras inferior da etiqueta.\n\n' +
-      'Para gerar vários volumes com segurança, cole a etiqueta completa e com o código de barras inferior legível.'
+      'Código esperado no modelo: 15 dígitos, como 577062760340001.\n\n' +
+      'Cole a etiqueta completa e tente novamente.'
     );
+
 
     return false;
   }
+
 
   return true;
 }
 
 
 /* =========================================================
-   BLOCO PADRÃO DE CORREÇÃO
+   BLOCO PADRÃO
    ========================================================= */
 
 function defaultBlock() {
   return {
     x:
       Math.round(
-        canvas.width * 0.54
+        canvas.width *
+        0.54
       ),
 
     y:
       Math.round(
-        canvas.height * 0.57
+        canvas.height *
+        0.57
       ),
 
     width:
       Math.round(
-        canvas.width * 0.39
+        canvas.width *
+        0.39
       ),
 
     minHeight:
       Math.round(
-        canvas.height * 0.19
+        canvas.height *
+        0.19
       ),
 
-    mode: 'address',
+    mode:
+      'address',
 
-    fontScale: 1
+    fontScale:
+      1
   };
 }
 
@@ -736,6 +1003,7 @@ function fitRightBlock() {
     return;
   }
 
+
   const text =
     normalizeIfNeeded(
       addressText.value ||
@@ -744,39 +1012,50 @@ function fitRightBlock() {
     );
 
 
-  if (isPhoneOnly(text)) {
-    block = phoneDefaultBlock();
+  if (
+    isPhoneOnly(text)
+  ) {
+    block =
+      phoneDefaultBlock();
 
   } else {
     block = {
       x:
         Math.round(
-          canvas.width * 0.53
+          canvas.width *
+          0.53
         ),
 
       y:
         Math.round(
-          canvas.height * 0.58
+          canvas.height *
+          0.58
         ),
 
       width:
         Math.round(
-          canvas.width * 0.40
+          canvas.width *
+          0.40
         ),
 
       minHeight:
         Math.round(
-          canvas.height * 0.18
+          canvas.height *
+          0.18
         ),
 
-      mode: 'address',
+      mode:
+        'address',
 
       fontScale:
-        block?.fontScale || 1
+        block?.fontScale ||
+        1
     };
   }
 
+
   syncControlsFromBlock();
+
   drawLabel();
 }
 
@@ -786,6 +1065,7 @@ function resetBlock() {
     return;
   }
 
+
   const text =
     normalizeIfNeeded(
       addressText.value ||
@@ -793,14 +1073,19 @@ function resetBlock() {
       ''
     );
 
-  manualSize = false;
+
+  manualSize =
+    false;
+
 
   block =
     isPhoneOnly(text)
       ? phoneDefaultBlock()
       : defaultBlock();
 
+
   syncControlsFromBlock();
+
   drawLabel();
 }
 
@@ -819,33 +1104,48 @@ function setZoom(value) {
       )
     );
 
+
   canvas.style.transformOrigin =
     'top center';
+
 
   canvas.style.transform =
     `scale(${zoom})`;
 
+
   canvas.style.marginBottom =
-    `${Math.max(
-      0,
-      canvas.height * (zoom - 1)
-    )}px`;
+    `${
+      Math.max(
+        0,
+        canvas.height *
+        (zoom - 1)
+      )
+    }px`;
+
 
   document
-    .getElementById('zoomLabel')
+    .getElementById(
+      'zoomLabel'
+    )
     .textContent =
-      Math.round(zoom * 100) + '%';
+      Math.round(
+        zoom *
+        100
+      ) +
+      '%';
 }
 
 
 /* =========================================================
-   CARREGAR ETIQUETA
+   CARREGAR IMAGEM
    ========================================================= */
 
 function loadImageFromFile(file) {
   if (
     !file ||
-    !file.type.startsWith('image/')
+    !file.type.startsWith(
+      'image/'
+    )
   ) {
     return;
   }
@@ -856,14 +1156,18 @@ function loadImageFromFile(file) {
 
 
   reader.onload = () => {
-    const img = new Image();
+    const img =
+      new Image();
 
 
     img.onload = () => {
-      originalImage = img;
+      originalImage =
+        img;
+
 
       canvas.width =
         originalImage.width;
+
 
       canvas.height =
         originalImage.height;
@@ -874,36 +1178,60 @@ function loadImageFromFile(file) {
 
 
       /*
-        Nova etiqueta =
-        nova leitura do código.
+        NOVA ETIQUETA =
+        NOVO BARCODE.
       */
-      originalBarcode = '';
-      barcodeStatus = 'idle';
-      barcodeDetectionPromise = null;
+      originalBarcode =
+        '';
+
+
+      barcodeStatus =
+        'idle';
+
+
+      barcodeDetectionPromise =
+        null;
 
 
       syncControlsFromBlock();
+
       drawLabel();
 
 
       pasteImageArea
         .classList
-        .add('active');
+        .add(
+          'active'
+        );
 
 
       pasteImageArea.innerHTML =
         '<div class="paste-icon">✅</div>' +
         '<strong>Etiqueta colada</strong>' +
-        '<small>Você pode colar outra imagem por cima</small>';
+        '<small>Identificando código de barras...</small>';
 
 
       /*
-        Inicia leitura automática
-        sem exigir nenhum campo novo.
+        LEITURA AUTOMÁTICA.
       */
       detectOriginalBarcode(
         originalImage
-      ).then(() => {
+      )
+      .then(value => {
+        if (value) {
+          pasteImageArea.innerHTML =
+            '<div class="paste-icon">✅</div>' +
+            '<strong>Etiqueta colada</strong>' +
+            `<small>Código identificado: ${value}</small>`;
+
+        } else {
+          pasteImageArea.innerHTML =
+            '<div class="paste-icon">✅</div>' +
+            '<strong>Etiqueta colada</strong>' +
+            '<small>Código não identificado automaticamente</small>';
+        }
+
+
         drawLabel();
       });
     };
@@ -914,7 +1242,9 @@ function loadImageFromFile(file) {
   };
 
 
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(
+    file
+  );
 }
 
 
@@ -924,18 +1254,26 @@ function loadImageFromFile(file) {
 
 function handlePaste(e) {
   const items =
-    e.clipboardData?.items || [];
+    e.clipboardData?.items ||
+    [];
 
 
-  for (const item of items) {
+  for (
+    const item
+    of items
+  ) {
     if (
-      item.type.startsWith('image/')
+      item.type.startsWith(
+        'image/'
+      )
     ) {
       e.preventDefault();
+
 
       loadImageFromFile(
         item.getAsFile()
       );
+
 
       return;
     }
@@ -945,13 +1283,14 @@ function handlePaste(e) {
 
 document.addEventListener(
   'paste',
-  (e) => {
+  e => {
     if (
       document.activeElement ===
       addressText
     ) {
       return;
     }
+
 
     handlePaste(e);
   }
@@ -966,23 +1305,28 @@ pasteImageArea.addEventListener(
 
 pasteImageArea.addEventListener(
   'click',
-  () => pasteImageArea.focus()
+  () =>
+    pasteImageArea.focus()
 );
 
 
 document
-  .getElementById('btnFile')
+  .getElementById(
+    'btnFile'
+  )
   .addEventListener(
     'click',
-    () => fileInput.click()
+    () =>
+      fileInput.click()
   );
 
 
 fileInput.addEventListener(
   'change',
-  () => loadImageFromFile(
-    fileInput.files[0]
-  )
+  () =>
+    loadImageFromFile(
+      fileInput.files[0]
+    )
 );
 
 
@@ -993,62 +1337,85 @@ fileInput.addEventListener(
 function normalizeIfNeeded(text) {
   const keepExact =
     document
-      .getElementById('keepExact')
+      .getElementById(
+        'keepExact'
+      )
       .checked;
 
 
   if (keepExact) {
     return text
-      .replace(/\r\n/g, '\n')
+      .replace(
+        /\r\n/g,
+        '\n'
+      )
       .trimEnd();
   }
 
 
   return text
-    .replace(/\r\n/g, '\n')
+    .replace(
+      /\r\n/g,
+      '\n'
+    )
     .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .join('\n');
+    .map(
+      line =>
+        line.trim()
+    )
+    .filter(
+      Boolean
+    )
+    .join(
+      '\n'
+    );
 }
 
 
 function compactText(text) {
-  return (text || '')
-    .replace(/\r\n/g, '\n')
+  return (
+    text || ''
+  )
+    .replace(
+      /\r\n/g,
+      '\n'
+    )
     .trim();
 }
 
 
 function isPhoneOnly(text) {
   const t =
-    compactText(text);
+    compactText(
+      text
+    );
+
 
   if (!t) {
     return false;
   }
 
 
-  /*
-    Exemplos:
-    11974929028
-    (11) 97492-9028
-    +55 11 97492-9028
-  */
   if (
-    !/^[\d\s()+\-.]+$/.test(t)
+    !/^[\d\s()+\-.]+$/
+      .test(t)
   ) {
     return false;
   }
 
 
   const digits =
-    t.replace(/\D/g, '');
+    t.replace(
+      /\D/g,
+      ''
+    );
 
 
   return (
-    digits.length >= 8 &&
-    digits.length <= 15
+    digits.length >=
+      8 &&
+    digits.length <=
+      15
   );
 }
 
@@ -1060,7 +1427,8 @@ function isPhoneOnly(text) {
 function getVolumeCount() {
   const n =
     parseInt(
-      volumeCountInput?.value || '1',
+      volumeCountInput?.value ||
+      '1',
       10
     );
 
@@ -1103,6 +1471,7 @@ function drawVolumeField(
   const canvasWidth =
     targetCanvas.width;
 
+
   const canvasHeight =
     targetCanvas.height;
 
@@ -1113,17 +1482,20 @@ function drawVolumeField(
       VOLUME_FIELD.centerX
     );
 
+
   const centerY =
     Math.round(
       canvasHeight *
       VOLUME_FIELD.centerY
     );
 
+
   const clearWidth =
     Math.round(
       canvasWidth *
       VOLUME_FIELD.clearWidth
     );
+
 
   const clearHeight =
     Math.round(
@@ -1135,13 +1507,16 @@ function drawVolumeField(
   const left =
     Math.round(
       centerX -
-      (clearWidth / 2)
+      clearWidth /
+      2
     );
+
 
   const top =
     Math.round(
       centerY -
-      (clearHeight / 2)
+      clearHeight /
+      2
     );
 
 
@@ -1152,11 +1527,9 @@ function drawVolumeField(
   targetCtx.save();
 
 
-  /*
-    Cobre somente o valor anterior.
-  */
   targetCtx.fillStyle =
     '#ffffff';
+
 
   targetCtx.fillRect(
     left,
@@ -1170,39 +1543,53 @@ function drawVolumeField(
     Math.max(
       9,
       Math.round(
-        canvasWidth * 0.030
+        canvasWidth *
+        0.030
       )
     );
 
 
   const maxTextWidth =
-    clearWidth * 0.90;
+    clearWidth *
+    0.90;
 
 
-  while (fontSize > 8) {
+  while (
+    fontSize >
+    8
+  ) {
     targetCtx.font =
       `700 ${fontSize}px Arial, Helvetica, sans-serif`;
 
+
     if (
       targetCtx
-        .measureText(value)
-        .width <= maxTextWidth
+        .measureText(
+          value
+        )
+        .width <=
+      maxTextWidth
     ) {
       break;
     }
 
-    fontSize -= 1;
+
+    fontSize -=
+      1;
   }
 
 
   targetCtx.fillStyle =
     '#000000';
 
+
   targetCtx.textAlign =
     'center';
 
+
   targetCtx.textBaseline =
     'middle';
+
 
   targetCtx.font =
     `700 ${fontSize}px Arial, Helvetica, sans-serif`;
@@ -1227,27 +1614,33 @@ function phoneDefaultBlock() {
   return {
     x:
       Math.round(
-        canvas.width * 0.54
+        canvas.width *
+        0.54
       ),
 
     y:
       Math.round(
-        canvas.height * 0.69
+        canvas.height *
+        0.69
       ),
 
     width:
       Math.round(
-        canvas.width * 0.31
+        canvas.width *
+        0.31
       ),
 
     minHeight:
       Math.round(
-        canvas.height * 0.055
+        canvas.height *
+        0.055
       ),
 
-    mode: 'phone',
+    mode:
+      'phone',
 
-    fontScale: 1
+    fontScale:
+      1
   };
 }
 
@@ -1257,7 +1650,9 @@ function phoneDefaultBlock() {
    ========================================================= */
 
 function updateSizeLabels() {
-  if (blockWidthInput) {
+  if (
+    blockWidthInput
+  ) {
     document
       .getElementById(
         'blockWidthLabel'
@@ -1267,7 +1662,9 @@ function updateSizeLabels() {
   }
 
 
-  if (blockHeightInput) {
+  if (
+    blockHeightInput
+  ) {
     document
       .getElementById(
         'blockHeightLabel'
@@ -1277,7 +1674,9 @@ function updateSizeLabels() {
   }
 
 
-  if (fontScaleInput) {
+  if (
+    fontScaleInput
+  ) {
     document
       .getElementById(
         'fontScaleLabel'
@@ -1299,18 +1698,27 @@ function syncControlsFromBlock() {
 
   const w =
     Math.round(
-      (block.width / canvas.width) *
+      (
+        block.width /
+        canvas.width
+      ) *
       100
     );
+
 
   const h =
     Math.round(
-      (block.minHeight / canvas.height) *
+      (
+        block.minHeight /
+        canvas.height
+      ) *
       100
     );
 
 
-  if (blockWidthInput) {
+  if (
+    blockWidthInput
+  ) {
     blockWidthInput.value =
       Math.max(
         +blockWidthInput.min,
@@ -1322,7 +1730,9 @@ function syncControlsFromBlock() {
   }
 
 
-  if (blockHeightInput) {
+  if (
+    blockHeightInput
+  ) {
     blockHeightInput.value =
       Math.max(
         +blockHeightInput.min,
@@ -1334,10 +1744,15 @@ function syncControlsFromBlock() {
   }
 
 
-  if (fontScaleInput) {
+  if (
+    fontScaleInput
+  ) {
     fontScaleInput.value =
       Math.round(
-        (block.fontScale || 1) *
+        (
+          block.fontScale ||
+          1
+        ) *
         100
       );
   }
@@ -1356,37 +1771,46 @@ function applySizeControls() {
   }
 
 
-  manualSize = true;
+  manualSize =
+    true;
 
 
   const widthPct =
     Number(
-      blockWidthInput.value || 31
-    ) / 100;
+      blockWidthInput.value ||
+      31
+    ) /
+    100;
 
 
   const heightPct =
     Number(
-      blockHeightInput.value || 6
-    ) / 100;
+      blockHeightInput.value ||
+      6
+    ) /
+    100;
 
 
   block.width =
     Math.round(
-      canvas.width * widthPct
+      canvas.width *
+      widthPct
     );
 
 
   block.minHeight =
     Math.round(
-      canvas.height * heightPct
+      canvas.height *
+      heightPct
     );
 
 
   block.fontScale =
     Number(
-      fontScaleInput.value || 100
-    ) / 100;
+      fontScaleInput.value ||
+      100
+    ) /
+    100;
 
 
   block.x =
@@ -1415,17 +1839,22 @@ function applySizeControls() {
 
 
   updateSizeLabels();
+
   drawLabel();
 }
 
 
 function setPhonePreset() {
-  if (!originalImage) {
+  if (
+    !originalImage
+  ) {
     return;
   }
 
 
-  if (!block) {
+  if (
+    !block
+  ) {
     block =
       phoneDefaultBlock();
   }
@@ -1433,34 +1862,46 @@ function setPhonePreset() {
 
   block.width =
     Math.round(
-      canvas.width * 0.22
+      canvas.width *
+      0.22
     );
+
 
   block.minHeight =
     Math.round(
-      canvas.height * 0.04
+      canvas.height *
+      0.04
     );
+
 
   block.fontScale =
     0.85;
 
+
   block.mode =
     'phone';
 
+
   block.x =
     Math.round(
-      canvas.width * 0.57
+      canvas.width *
+      0.57
     );
+
 
   block.y =
     Math.round(
-      canvas.height * 0.66
+      canvas.height *
+      0.66
     );
 
 
-  manualSize = true;
+  manualSize =
+    true;
+
 
   syncControlsFromBlock();
+
   drawLabel();
 }
 
@@ -1474,51 +1915,75 @@ function wrapText(
   text,
   maxWidth
 ) {
-  const lines = [];
+  const lines =
+    [];
 
 
   text
     .split('\n')
-    .forEach(raw => {
-      if (
-        raw.trim() === ''
-      ) {
-        lines.push('');
-        return;
-      }
-
-
-      const words =
-        raw.split(/\s+/);
-
-      let line = '';
-
-
-      words.forEach(word => {
-        const test =
-          line
-            ? line + ' ' + word
-            : word;
-
-
+    .forEach(
+      raw => {
         if (
-          ctx
-            .measureText(test)
-            .width >
-            maxWidth &&
-          line
+          raw.trim() ===
+          ''
         ) {
-          lines.push(line);
-          line = word;
+          lines.push(
+            ''
+          );
 
-        } else {
-          line = test;
+          return;
         }
-      });
 
 
-      lines.push(line);
-    });
+        const words =
+          raw.split(
+            /\s+/
+          );
+
+
+        let line =
+          '';
+
+
+        words.forEach(
+          word => {
+            const test =
+              line
+                ? line +
+                  ' ' +
+                  word
+                : word;
+
+
+            if (
+              ctx
+                .measureText(
+                  test
+                )
+                .width >
+                maxWidth &&
+              line
+            ) {
+              lines.push(
+                line
+              );
+
+              line =
+                word;
+
+            } else {
+              line =
+                test;
+            }
+          }
+        );
+
+
+        lines.push(
+          line
+        );
+      }
+    );
 
 
   return lines;
@@ -1530,9 +1995,16 @@ function wrapText(
    ========================================================= */
 
 function drawLabel() {
-  if (!originalImage) {
-    canvas.width = 620;
-    canvas.height = 850;
+  if (
+    !originalImage
+  ) {
+    canvas.width =
+      620;
+
+
+    canvas.height =
+      850;
+
 
     ctx.clearRect(
       0,
@@ -1541,8 +2013,10 @@ function drawLabel() {
       canvas.height
     );
 
+
     emptyState.style.display =
       'block';
+
 
     return;
   }
@@ -1554,6 +2028,7 @@ function drawLabel() {
 
   canvas.width =
     originalImage.width;
+
 
   canvas.height =
     originalImage.height;
@@ -1574,7 +2049,9 @@ function drawLabel() {
   );
 
 
-  if (!block) {
+  if (
+    !block
+  ) {
     block =
       defaultBlock();
   }
@@ -1593,21 +2070,31 @@ function drawLabel() {
 
 
   const displayText =
-    textForVolume(text);
+    textForVolume(
+      text
+    );
 
 
   /*
-    Correção de endereço / telefone.
+    ENDEREÇO / TELEFONE
   */
-  if (text.trim()) {
-    if (isPhoneOnly(text)) {
+  if (
+    text.trim()
+  ) {
+    if (
+      isPhoneOnly(
+        text
+      )
+    ) {
       if (
         !block ||
-        block.mode !== 'phone'
+        block.mode !==
+          'phone'
       ) {
         block =
           phoneDefaultBlock();
       }
+
 
       drawPhoneOnlyBlock(
         displayText
@@ -1616,11 +2103,13 @@ function drawLabel() {
     } else {
       if (
         !block ||
-        block.mode === 'phone'
+        block.mode ===
+          'phone'
       ) {
         block =
           defaultBlock();
       }
+
 
       drawCorrectAddressBlock(
         displayText
@@ -1630,8 +2119,7 @@ function drawLabel() {
 
 
   /*
-    A prévia representa sempre
-    a primeira etiqueta do lote.
+    PRÉVIA = PRIMEIRO VOLUME
   */
   drawVolumeField(
     ctx,
@@ -1642,14 +2130,17 @@ function drawLabel() {
 
 
   /*
-    Se o código já foi identificado,
-    substitui visualmente pelo volume 1.
+    NOVO BARCODE DO VOLUME 1
   */
   const previewBarcode =
-    barcodeForVolume(1);
+    barcodeForVolume(
+      1
+    );
 
 
-  if (previewBarcode) {
+  if (
+    previewBarcode
+  ) {
     drawBarcodeField(
       ctx,
       canvas,
@@ -1658,7 +2149,9 @@ function drawLabel() {
   }
 
 
-  setZoom(zoom);
+  setZoom(
+    zoom
+  );
 }
 
 
@@ -1666,7 +2159,9 @@ function drawLabel() {
    DESENHAR TELEFONE
    ========================================================= */
 
-function drawPhoneOnlyBlock(text) {
+function drawPhoneOnlyBlock(
+  text
+) {
   const pos =
     block ||
     phoneDefaultBlock();
@@ -1676,7 +2171,8 @@ function drawPhoneOnlyBlock(text) {
     Math.max(
       5,
       Math.round(
-        canvas.width * 0.008
+        canvas.width *
+        0.008
       )
     );
 
@@ -1687,14 +2183,18 @@ function drawPhoneOnlyBlock(text) {
       Math.round(
         canvas.width *
         0.023 *
-        (pos.fontScale || 1)
+        (
+          pos.fontScale ||
+          1
+        )
       )
     );
 
 
   const lineHeight =
     Math.round(
-      fontSize * 1.22
+      fontSize *
+      1.22
     );
 
 
@@ -1707,7 +2207,8 @@ function drawPhoneOnlyBlock(text) {
 
   const contentWidth =
     pos.width -
-    (pad * 2);
+    pad *
+    2;
 
 
   const lines =
@@ -1721,7 +2222,8 @@ function drawPhoneOnlyBlock(text) {
   const blockHeight =
     Math.max(
       pos.minHeight,
-      (pad * 2) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -1732,11 +2234,14 @@ function drawPhoneOnlyBlock(text) {
   block.height =
     blockHeight;
 
+
   block.mode =
     'phone';
 
+
   block.fontScale =
-    pos.fontScale || 1;
+    pos.fontScale ||
+    1;
 
 
   ctx.fillStyle =
@@ -1755,7 +2260,8 @@ function drawPhoneOnlyBlock(text) {
     Math.max(
       1,
       Math.round(
-        canvas.width * 0.0025
+        canvas.width *
+        0.0025
       )
     );
 
@@ -1786,15 +2292,20 @@ function drawPhoneOnlyBlock(text) {
     fontSize;
 
 
-  lines.forEach(line => {
-    ctx.fillText(
-      line,
-      pos.x + pad,
-      y
-    );
+  lines.forEach(
+    line => {
+      ctx.fillText(
+        line,
+        pos.x +
+        pad,
+        y
+      );
 
-    y += lineHeight;
-  });
+
+      y +=
+        lineHeight;
+    }
+  );
 
 
   ctx.restore();
@@ -1805,7 +2316,9 @@ function drawPhoneOnlyBlock(text) {
    DESENHAR ENDEREÇO
    ========================================================= */
 
-function drawCorrectAddressBlock(text) {
+function drawCorrectAddressBlock(
+  text
+) {
   const pos =
     block ||
     defaultBlock();
@@ -1814,15 +2327,18 @@ function drawCorrectAddressBlock(text) {
   block.mode =
     'address';
 
+
   block.fontScale =
-    pos.fontScale || 1;
+    pos.fontScale ||
+    1;
 
 
   const pad =
     Math.max(
       7,
       Math.round(
-        canvas.width * 0.011
+        canvas.width *
+        0.011
       )
     );
 
@@ -1833,14 +2349,18 @@ function drawCorrectAddressBlock(text) {
       Math.round(
         canvas.width *
         0.024 *
-        (pos.fontScale || 1)
+        (
+          pos.fontScale ||
+          1
+        )
       )
     );
 
 
   const lineHeight =
     Math.round(
-      fontSize * 1.22
+      fontSize *
+      1.22
     );
 
 
@@ -1853,7 +2373,8 @@ function drawCorrectAddressBlock(text) {
 
   const contentWidth =
     pos.width -
-    (pad * 2);
+    pad *
+    2;
 
 
   const lines =
@@ -1867,7 +2388,8 @@ function drawCorrectAddressBlock(text) {
   const blockHeight =
     Math.max(
       pos.minHeight,
-      (pad * 2) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -1895,7 +2417,8 @@ function drawCorrectAddressBlock(text) {
     Math.max(
       2,
       Math.round(
-        canvas.width * 0.004
+        canvas.width *
+        0.004
       )
     );
 
@@ -1926,15 +2449,20 @@ function drawCorrectAddressBlock(text) {
     fontSize;
 
 
-  lines.forEach(line => {
-    ctx.fillText(
-      line,
-      pos.x + pad,
-      y
-    );
+  lines.forEach(
+    line => {
+      ctx.fillText(
+        line,
+        pos.x +
+        pad,
+        y
+      );
 
-    y += lineHeight;
-  });
+
+      y +=
+        lineHeight;
+    }
+  );
 
 
   ctx.restore();
@@ -1949,6 +2477,7 @@ function applyBlock() {
   lastAppliedText =
     addressText.value;
 
+
   drawLabel();
 }
 
@@ -1958,27 +2487,47 @@ function applyBlock() {
    ========================================================= */
 
 function clearAll() {
-  originalImage = null;
-
-  originalBarcode = '';
-  barcodeStatus = 'idle';
-  barcodeDetectionPromise = null;
-
-  block = null;
-
-  lastAppliedText = '';
-
-  addressText.value = '';
+  originalImage =
+    null;
 
 
-  if (volumeCountInput) {
-    volumeCountInput.value = '1';
+  originalBarcode =
+    '';
+
+
+  barcodeStatus =
+    'idle';
+
+
+  barcodeDetectionPromise =
+    null;
+
+
+  block =
+    null;
+
+
+  lastAppliedText =
+    '';
+
+
+  addressText.value =
+    '';
+
+
+  if (
+    volumeCountInput
+  ) {
+    volumeCountInput.value =
+      '1';
   }
 
 
   pasteImageArea
     .classList
-    .remove('active');
+    .remove(
+      'active'
+    );
 
 
   pasteImageArea.innerHTML =
@@ -1992,7 +2541,7 @@ function clearAll() {
 
 
 /* =========================================================
-   BLOCO PARA EXPORTAÇÃO
+   EXPORTAR BLOCO DE TEXTO
    ========================================================= */
 
 function drawExportBlock(
@@ -2002,12 +2551,16 @@ function drawExportBlock(
   text
 ) {
   const isPhone =
-    isPhoneOnly(text);
+    isPhoneOnly(
+      text
+    );
 
 
   const pad =
     Math.max(
-      isPhone ? 5 : 7,
+      isPhone
+        ? 5
+        : 7,
       Math.round(
         exportCanvas.width *
         (
@@ -2021,8 +2574,8 @@ function drawExportBlock(
 
   const fontSize =
     Math.max(
-      9 * EXPORT_SCALE,
-
+      9 *
+      EXPORT_SCALE,
       Math.round(
         exportCanvas.width *
         (
@@ -2040,7 +2593,8 @@ function drawExportBlock(
 
   const lineHeight =
     Math.round(
-      fontSize * 1.22
+      fontSize *
+      1.22
     );
 
 
@@ -2050,13 +2604,15 @@ function drawExportBlock(
   exportCtx.font =
     `${fontSize}px Arial, Helvetica, sans-serif`;
 
+
   exportCtx.textBaseline =
     'alphabetic';
 
 
   const contentWidth =
     exportBlock.width -
-    (pad * 2);
+    pad *
+    2;
 
 
   const lines =
@@ -2070,8 +2626,8 @@ function drawExportBlock(
   const blockHeight =
     Math.max(
       exportBlock.minHeight,
-
-      (pad * 2) +
+      pad *
+      2 +
       (
         lines.length *
         lineHeight
@@ -2093,8 +2649,9 @@ function drawExportBlock(
 
   exportCtx.lineWidth =
     Math.max(
-      isPhone ? 1 : 2,
-
+      isPhone
+        ? 1
+        : 2,
       Math.round(
         exportCanvas.width *
         (
@@ -2128,15 +2685,20 @@ function drawExportBlock(
     fontSize;
 
 
-  lines.forEach(line => {
-    exportCtx.fillText(
-      line,
-      exportBlock.x + pad,
-      y
-    );
+  lines.forEach(
+    line => {
+      exportCtx.fillText(
+        line,
+        exportBlock.x +
+        pad,
+        y
+      );
 
-    y += lineHeight;
-  });
+
+      y +=
+        lineHeight;
+    }
+  );
 
 
   exportCtx.restore();
@@ -2144,10 +2706,11 @@ function drawExportBlock(
 
 
 /* =========================================================
-   EXPORTAÇÃO EM ALTA RESOLUÇÃO
+   EXPORTAÇÃO
    ========================================================= */
 
-const EXPORT_SCALE = 4;
+const EXPORT_SCALE =
+  4;
 
 
 function renderExportCanvas(
@@ -2155,25 +2718,29 @@ function renderExportCanvas(
   volumeIndex = 1,
   totalVolumes = 1
 ) {
-  /*
-    Atualiza estado visual e posição.
-  */
   drawLabel();
 
 
   const exportCanvas =
-    document.createElement('canvas');
+    document.createElement(
+      'canvas'
+    );
 
 
   exportCanvas.width =
-    originalImage.width * scale;
+    originalImage.width *
+    scale;
+
 
   exportCanvas.height =
-    originalImage.height * scale;
+    originalImage.height *
+    scale;
 
 
   const exportCtx =
-    exportCanvas.getContext('2d');
+    exportCanvas.getContext(
+      '2d'
+    );
 
 
   exportCtx.imageSmoothingEnabled =
@@ -2188,22 +2755,17 @@ function renderExportCanvas(
   );
 
 
-  /*
-    Etiqueta original.
-  */
   exportCtx.drawImage(
     originalImage,
-
     0,
     0,
-
     exportCanvas.width,
     exportCanvas.height
   );
 
 
   /*
-    Endereço / telefone corrigido.
+    ENDEREÇO / TELEFONE
   */
   const baseText =
     normalizeIfNeeded(
@@ -2214,7 +2776,9 @@ function renderExportCanvas(
 
 
   const text =
-    textForVolume(baseText);
+    textForVolume(
+      baseText
+    );
 
 
   if (
@@ -2224,17 +2788,20 @@ function renderExportCanvas(
     const exportBlock = {
       x:
         Math.round(
-          block.x * scale
+          block.x *
+          scale
         ),
 
       y:
         Math.round(
-          block.y * scale
+          block.y *
+          scale
         ),
 
       width:
         Math.round(
-          block.width * scale
+          block.width *
+          scale
         ),
 
       minHeight:
@@ -2261,7 +2828,8 @@ function renderExportCanvas(
         block.mode,
 
       fontScale:
-        block.fontScale || 1
+        block.fontScale ||
+        1
     };
 
 
@@ -2275,11 +2843,10 @@ function renderExportCanvas(
 
 
   /*
-    Atualiza o campo:
+    VOLUME
 
     1/2
     2/2
-    etc.
   */
   drawVolumeField(
     exportCtx,
@@ -2290,8 +2857,10 @@ function renderExportCanvas(
 
 
   /*
-    Atualiza o CODE128 correspondente
-    à etiqueta que está sendo gerada.
+    BARCODE
+
+    ...0001
+    ...0002
   */
   const volumeBarcode =
     barcodeForVolume(
@@ -2299,7 +2868,9 @@ function renderExportCanvas(
     );
 
 
-  if (volumeBarcode) {
+  if (
+    volumeBarcode
+  ) {
     drawBarcodeField(
       exportCtx,
       exportCanvas,
@@ -2313,11 +2884,13 @@ function renderExportCanvas(
 
 
 /* =========================================================
-   DOWNLOAD PNG
+   BAIXAR PNG
    ========================================================= */
 
 async function downloadPNG() {
-  if (!originalImage) {
+  if (
+    !originalImage
+  ) {
     alert(
       'Cole a etiqueta original antes de baixar.'
     );
@@ -2336,15 +2909,20 @@ async function downloadPNG() {
     );
 
 
-  if (!ready) {
+  if (
+    !ready
+  ) {
     return;
   }
 
 
   /*
-    UMA ETIQUETA
+    APENAS 1 VOLUME
   */
-  if (totalVolumes <= 1) {
+  if (
+    totalVolumes <=
+    1
+  ) {
     const exportCanvas =
       renderExportCanvas(
         EXPORT_SCALE,
@@ -2354,7 +2932,9 @@ async function downloadPNG() {
 
 
     const a =
-      document.createElement('a');
+      document.createElement(
+        'a'
+      );
 
 
     a.download =
@@ -2369,12 +2949,13 @@ async function downloadPNG() {
 
     a.click();
 
+
     return;
   }
 
 
   /*
-    VÁRIAS ETIQUETAS
+    VÁRIOS VOLUMES
   */
   const one =
     renderExportCanvas(
@@ -2386,12 +2967,15 @@ async function downloadPNG() {
 
   const gap =
     Math.round(
-      40 * EXPORT_SCALE
+      40 *
+      EXPORT_SCALE
     );
 
 
   const combined =
-    document.createElement('canvas');
+    document.createElement(
+      'canvas'
+    );
 
 
   combined.width =
@@ -2406,13 +2990,16 @@ async function downloadPNG() {
     (
       gap *
       (
-        totalVolumes - 1
+        totalVolumes -
+        1
       )
     );
 
 
   const cctx =
-    combined.getContext('2d');
+    combined.getContext(
+      '2d'
+    );
 
 
   cctx.fillStyle =
@@ -2444,7 +3031,8 @@ async function downloadPNG() {
       page,
       0,
       (
-        i - 1
+        i -
+        1
       ) *
       (
         one.height +
@@ -2455,7 +3043,9 @@ async function downloadPNG() {
 
 
   const a =
-    document.createElement('a');
+    document.createElement(
+      'a'
+    );
 
 
   a.download =
@@ -2473,11 +3063,13 @@ async function downloadPNG() {
 
 
 /* =========================================================
-   IMPRESSÃO
+   IMPRIMIR
    ========================================================= */
 
 async function printCanvas() {
-  if (!originalImage) {
+  if (
+    !originalImage
+  ) {
     alert(
       'Cole a etiqueta original antes de imprimir.'
     );
@@ -2496,19 +3088,26 @@ async function printCanvas() {
     );
 
 
-  if (!ready) {
+  if (
+    !ready
+  ) {
     return;
   }
 
 
-  if (totalVolumes > 20) {
+  if (
+    totalVolumes >
+    20
+  ) {
     const confirmed =
       window.confirm(
         `Serão impressas ${totalVolumes} etiquetas numeradas de 1/${totalVolumes} até ${totalVolumes}/${totalVolumes}. Deseja continuar?`
       );
 
 
-    if (!confirmed) {
+    if (
+      !confirmed
+    ) {
       return;
     }
   }
@@ -2518,23 +3117,10 @@ async function printCanvas() {
     originalImage.width;
 
 
-  const imgs = [];
+  const imgs =
+    [];
 
 
-  /*
-    Cada etiqueta passa individualmente
-    por renderExportCanvas.
-
-    Portanto:
-
-    i = 1
-    1/N
-    ...0001
-
-    i = 2
-    2/N
-    ...0002
-  */
   for (
     let i = 1;
     i <= totalVolumes;
@@ -2546,9 +3132,9 @@ async function printCanvas() {
         i,
         totalVolumes
       )
-      .toDataURL(
-        'image/png'
-      )
+        .toDataURL(
+          'image/png'
+        )
     );
   }
 
@@ -2559,7 +3145,9 @@ async function printCanvas() {
         src =>
           `<div class="page"><img src="${src}"></div>`
       )
-      .join('');
+      .join(
+        ''
+      );
 
 
   const win =
@@ -2642,7 +3230,7 @@ window.onload = () => {
 
 
 /* =========================================================
-   POSIÇÃO DO PONTEIRO
+   POSIÇÃO NO CANVAS
    ========================================================= */
 
 function canvasPoint(evt) {
@@ -2669,12 +3257,12 @@ function canvasPoint(evt) {
 
 
 /* =========================================================
-   ARRASTAR BLOCO VERMELHO
+   ARRASTAR BLOCO
    ========================================================= */
 
 canvas.addEventListener(
   'pointerdown',
-  (e) => {
+  e => {
     if (
       !originalImage ||
       !block ||
@@ -2685,16 +3273,19 @@ canvas.addEventListener(
 
 
     const p =
-      canvasPoint(e);
+      canvasPoint(
+        e
+      );
 
 
     if (
-      p.x >= block.x &&
+      p.x >=
+        block.x &&
       p.x <=
         block.x +
         block.width &&
-
-      p.y >= block.y &&
+      p.y >=
+        block.y &&
       p.y <=
         block.y +
         (
@@ -2702,11 +3293,14 @@ canvas.addEventListener(
           block.minHeight
         )
     ) {
-      drag.active = true;
+      drag.active =
+        true;
+
 
       drag.dx =
         p.x -
         block.x;
+
 
       drag.dy =
         p.y -
@@ -2728,14 +3322,18 @@ canvas.addEventListener(
 
 canvas.addEventListener(
   'pointermove',
-  (e) => {
-    if (!drag.active) {
+  e => {
+    if (
+      !drag.active
+    ) {
       return;
     }
 
 
     const p =
-      canvasPoint(e);
+      canvasPoint(
+        e
+      );
 
 
     block.x =
@@ -2744,7 +3342,6 @@ canvas.addEventListener(
         Math.min(
           canvas.width -
           block.width,
-
           Math.round(
             p.x -
             drag.dx
@@ -2762,7 +3359,6 @@ canvas.addEventListener(
             block.height ||
             block.minHeight
           ),
-
           Math.round(
             p.y -
             drag.dy
@@ -2778,8 +3374,9 @@ canvas.addEventListener(
 
 canvas.addEventListener(
   'pointerup',
-  (e) => {
-    drag.active = false;
+  e => {
+    drag.active =
+      false;
 
 
     canvas.classList.remove(
@@ -2793,7 +3390,7 @@ canvas.addEventListener(
       );
 
     } catch (error) {
-      // nada
+      // ignora
     }
   }
 );
@@ -2802,7 +3399,9 @@ canvas.addEventListener(
 canvas.addEventListener(
   'pointercancel',
   () => {
-    drag.active = false;
+    drag.active =
+      false;
+
 
     canvas.classList.remove(
       'dragging'
@@ -2816,7 +3415,9 @@ canvas.addEventListener(
    ========================================================= */
 
 document
-  .getElementById('btnApply')
+  .getElementById(
+    'btnApply'
+  )
   .addEventListener(
     'click',
     applyBlock
@@ -2824,7 +3425,9 @@ document
 
 
 document
-  .getElementById('btnApply2')
+  .getElementById(
+    'btnApply2'
+  )
   .addEventListener(
     'click',
     applyBlock
@@ -2832,7 +3435,9 @@ document
 
 
 document
-  .getElementById('btnClear')
+  .getElementById(
+    'btnClear'
+  )
   .addEventListener(
     'click',
     clearAll
@@ -2840,7 +3445,9 @@ document
 
 
 document
-  .getElementById('btnDownload')
+  .getElementById(
+    'btnDownload'
+  )
   .addEventListener(
     'click',
     downloadPNG
@@ -2848,7 +3455,9 @@ document
 
 
 document
-  .getElementById('btnPrint')
+  .getElementById(
+    'btnPrint'
+  )
   .addEventListener(
     'click',
     printCanvas
@@ -2856,29 +3465,37 @@ document
 
 
 document
-  .getElementById('zoomIn')
+  .getElementById(
+    'zoomIn'
+  )
   .addEventListener(
     'click',
     () =>
       setZoom(
-        zoom + 0.1
+        zoom +
+        0.1
       )
   );
 
 
 document
-  .getElementById('zoomOut')
+  .getElementById(
+    'zoomOut'
+  )
   .addEventListener(
     'click',
     () =>
       setZoom(
-        zoom - 0.1
+        zoom -
+        0.1
       )
   );
 
 
 document
-  .getElementById('btnResetPos')
+  .getElementById(
+    'btnResetPos'
+  )
   .addEventListener(
     'click',
     resetBlock
@@ -2886,7 +3503,9 @@ document
 
 
 document
-  .getElementById('btnFit')
+  .getElementById(
+    'btnFit'
+  )
   .addEventListener(
     'click',
     fitRightBlock
@@ -2894,7 +3513,9 @@ document
 
 
 document
-  .getElementById('btnPhonePreset')
+  .getElementById(
+    'btnPhonePreset'
+  )
   .addEventListener(
     'click',
     setPhonePreset
@@ -2906,14 +3527,18 @@ document
   blockHeightInput,
   fontScaleInput
 ]
-.forEach(el => {
-  if (el) {
-    el.addEventListener(
-      'input',
-      applySizeControls
-    );
-  }
-});
+  .forEach(
+    el => {
+      if (
+        el
+      ) {
+        el.addEventListener(
+          'input',
+          applySizeControls
+        );
+      }
+    }
+  );
 
 
 addressText.addEventListener(
@@ -2923,7 +3548,9 @@ addressText.addEventListener(
 
 
 document
-  .getElementById('keepExact')
+  .getElementById(
+    'keepExact'
+  )
   .addEventListener(
     'change',
     drawLabel
@@ -2931,36 +3558,39 @@ document
 
 
 /* =========================================================
-   ALTERAÇÃO DA QUANTIDADE DE VOLUMES
+   ALTERAR QUANTIDADE DE VOLUMES
    ========================================================= */
 
-if (volumeCountInput) {
+if (
+  volumeCountInput
+) {
   volumeCountInput.addEventListener(
     'input',
     () => {
-      /*
-        Atualiza imediatamente
-        o volume mostrado.
-      */
       drawLabel();
 
 
       /*
-        Se colocou mais de 1 volume
-        e ainda não lemos o barcode,
-        tenta novamente.
+        Se aumentou quantidade,
+        mas ainda não temos barcode,
+        tenta ler novamente.
       */
       if (
         originalImage &&
-        getVolumeCount() > 1 &&
+        getVolumeCount() >
+          1 &&
         !originalBarcode &&
-        barcodeStatus !== 'loading'
+        barcodeStatus !==
+          'loading'
       ) {
         detectOriginalBarcode(
           originalImage
-        ).then(() => {
-          drawLabel();
-        });
+        )
+          .then(
+            () => {
+              drawLabel();
+            }
+          );
       }
     }
   );
