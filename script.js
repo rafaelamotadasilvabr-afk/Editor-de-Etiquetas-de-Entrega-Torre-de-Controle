@@ -40,14 +40,17 @@ const VOLUME_FIELD = {
 
 
 /*
-  Área onde o NOVO código de barras
-  será colocado.
+  Faixa estreita que contém somente os
+  números impressos abaixo do código de barras.
+
+  As barras e o campo de assinatura permanecem
+  exatamente como estão na etiqueta original.
 */
-const BARCODE_FIELD = {
-  x: 0.145,
-  y: 0.812,
-  width: 0.710,
-  height: 0.088
+const BARCODE_NUMBER_FIELD = {
+  centerX: 0.500,
+  y: 0.902,
+  width: 0.300,
+  height: 0.016
 };
 
 
@@ -1507,7 +1510,7 @@ function barcodeForVolume(
 
 
 /* =========================================================
-   DESENHAR O NOVO CODE128
+   ALTERAR SOMENTE OS NÚMEROS ABAIXO DO CODE128
    ========================================================= */
 
 function drawBarcodeField(
@@ -1516,195 +1519,54 @@ function drawBarcodeField(
   value
 ) {
 
-  if (
-    !value ||
-    typeof window.JsBarcode !==
-      'function'
-  ) {
+  if (!value) {
 
     return;
   }
 
 
-  const fieldX =
+  const fieldCenterX =
     Math.round(
       targetCanvas.width *
-      BARCODE_FIELD.x
+      BARCODE_NUMBER_FIELD.centerX
     );
 
 
   const fieldY =
     Math.round(
       targetCanvas.height *
-      BARCODE_FIELD.y
+      BARCODE_NUMBER_FIELD.y
     );
 
 
   const fieldWidth =
     Math.round(
       targetCanvas.width *
-      BARCODE_FIELD.width
+      BARCODE_NUMBER_FIELD.width
     );
 
 
   const fieldHeight =
     Math.round(
       targetCanvas.height *
-      BARCODE_FIELD.height
+      BARCODE_NUMBER_FIELD.height
     );
 
 
-  const barcodeCanvas =
-    document.createElement(
-      'canvas'
-    );
-
-
-  /*
-    Ajusta a geração proporcionalmente
-    à resolução da etiqueta.
-  */
-  const moduleWidth =
-    Math.max(
-      1.5,
-      targetCanvas.width *
-      0.0036
-    );
-
-
-  const barHeight =
-    Math.max(
-      22,
-      Math.round(
-        fieldHeight *
-        0.52
-      )
-    );
-
-
-  const fontSize =
-    Math.max(
-      10,
-      Math.round(
-        fieldHeight *
-        0.19
-      )
-    );
-
-
-  window.JsBarcode(
-    barcodeCanvas,
-    value,
-    {
-
-      format:
-        'CODE128',
-
-      width:
-        moduleWidth,
-
-      height:
-        barHeight,
-
-      displayValue:
-        true,
-
-      font:
-        'Arial',
-
-      fontSize,
-
-      textAlign:
-        'center',
-
-      textPosition:
-        'bottom',
-
-      textMargin:
-        Math.max(
-          1,
-          Math.round(
-            fieldHeight *
-            0.015
-          )
-        ),
-
-      margin:
-        0,
-
-      background:
-        '#ffffff',
-
-      lineColor:
-        '#000000'
-
-    }
-  );
-
-
-  /*
-    Se necessário,
-    reduz para caber no campo.
-  */
-  const fitScale =
-    Math.min(
-
-      1,
-
-      (
-        fieldWidth *
-        0.96
-      ) /
-      barcodeCanvas.width,
-
-      (
-        fieldHeight *
-        0.96
-      ) /
-      barcodeCanvas.height
-
-    );
-
-
-  const drawWidth =
-    Math.max(
-      1,
-      Math.round(
-        barcodeCanvas.width *
-        fitScale
-      )
-    );
-
-
-  const drawHeight =
-    Math.max(
-      1,
-      Math.round(
-        barcodeCanvas.height *
-        fitScale
-      )
-    );
-
-
-  const drawX =
+  const fieldX =
     Math.round(
-      fieldX +
-      (
-        fieldWidth -
-        drawWidth
-      ) /
-      2
+      fieldCenterX -
+      fieldWidth / 2
     );
 
 
-  const drawY =
-    Math.round(
-      fieldY +
-      (
-        fieldHeight -
-        drawHeight
-      ) /
-      2
+  let fontSize =
+    Math.max(
+      7,
+      Math.round(
+        targetCanvas.width *
+        0.018
+      )
     );
 
 
@@ -1712,8 +1574,9 @@ function drawBarcodeField(
 
 
   /*
-    COBRE O BARCODE E
-    O NÚMERO ANTIGOS.
+    COBRE SOMENTE O NÚMERO ANTIGO.
+    Não alcança as barras nem a linha
+    reservada para o nome/assinatura.
   */
   targetCtx.fillStyle =
     '#ffffff';
@@ -1727,25 +1590,48 @@ function drawBarcodeField(
   );
 
 
-  targetCtx.imageSmoothingEnabled =
-    false;
-
-
   /*
-    DESENHA O NOVO.
+    Ajusta o texto caso a imagem tenha
+    proporções ligeiramente diferentes.
   */
-  targetCtx.drawImage(
-    barcodeCanvas,
+  const maxTextWidth =
+    fieldWidth * 0.94;
 
-    0,
-    0,
-    barcodeCanvas.width,
-    barcodeCanvas.height,
 
-    drawX,
-    drawY,
-    drawWidth,
-    drawHeight
+  while (fontSize > 6) {
+
+    targetCtx.font =
+      `${fontSize}px Arial, Helvetica, sans-serif`;
+
+    if (
+      targetCtx.measureText(value).width <=
+      maxTextWidth
+    ) {
+
+      break;
+    }
+
+    fontSize -= 1;
+  }
+
+
+  targetCtx.fillStyle =
+    '#000000';
+
+  targetCtx.textAlign =
+    'center';
+
+  targetCtx.textBaseline =
+    'middle';
+
+  targetCtx.font =
+    `${fontSize}px Arial, Helvetica, sans-serif`;
+
+  targetCtx.fillText(
+    value,
+    fieldCenterX,
+    fieldY + fieldHeight / 2,
+    maxTextWidth
   );
 
 
