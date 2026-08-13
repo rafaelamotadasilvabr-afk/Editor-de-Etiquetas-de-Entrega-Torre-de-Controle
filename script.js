@@ -1738,10 +1738,10 @@ function drawBarcodeField(
 
   let fontSize =
     Math.max(
-      7,
+      9,
       Math.round(
         targetCanvas.width *
-        0.018
+        0.030
       )
     );
 
@@ -1778,13 +1778,13 @@ function drawBarcodeField(
     proporções ligeiramente diferentes.
   */
   const maxTextWidth =
-    fieldWidth * 0.94;
+    fieldWidth * 0.96;
 
 
-  while (fontSize > 6) {
+  while (fontSize > 8) {
 
     targetCtx.font =
-      `${fontSize}px Arial, Helvetica, sans-serif`;
+      `600 ${fontSize}px Arial, Helvetica, sans-serif`;
 
     if (
       targetCtx.measureText(value).width <=
@@ -1808,7 +1808,7 @@ function drawBarcodeField(
     'middle';
 
   targetCtx.font =
-    `${fontSize}px Arial, Helvetica, sans-serif`;
+    `600 ${fontSize}px Arial, Helvetica, sans-serif`;
 
   targetCtx.fillText(
     value,
