@@ -48,9 +48,9 @@ const VOLUME_FIELD = {
 */
 const BARCODE_NUMBER_FIELD = {
   centerX: 0.500,
-  y: 0.902,
+  y: 0.907,
   width: 0.300,
-  height: 0.016
+  height: 0.024
 };
 
 
@@ -1513,6 +1513,150 @@ function barcodeForVolume(
    ALTERAR SOMENTE OS NÚMEROS ABAIXO DO CODE128
    ========================================================= */
 
+function findSignatureTop(
+  targetCtx,
+  targetCanvas
+) {
+
+  /*
+    Procura a linha horizontal que separa o
+    barcode do campo "Nome Recebedor".
+
+    Isso permite trabalhar com os dois modelos
+    de etiqueta sem usar uma posição fixa.
+  */
+  const startY =
+    Math.round(
+      targetCanvas.height * 0.875
+    );
+
+  const endY =
+    Math.round(
+      targetCanvas.height * 0.940
+    );
+
+  const stepX =
+    Math.max(
+      1,
+      Math.round(
+        targetCanvas.width / 240
+      )
+    );
+
+  const imageData =
+    targetCtx.getImageData(
+      0,
+      startY,
+      targetCanvas.width,
+      Math.max(1, endY - startY + 1)
+    );
+
+  const requiredDarkSamples =
+    Math.floor(
+      (targetCanvas.width / stepX) *
+      0.78
+    );
+
+  for (
+    let localY = 0;
+    localY < imageData.height;
+    localY++
+  ) {
+
+    let darkSamples = 0;
+
+    for (
+      let x = 0;
+      x < targetCanvas.width;
+      x += stepX
+    ) {
+
+      const pixel =
+        (
+          localY *
+          imageData.width +
+          x
+        ) * 4;
+
+      if (
+        imageData.data[pixel] < 80 &&
+        imageData.data[pixel + 1] < 80 &&
+        imageData.data[pixel + 2] < 80
+      ) {
+
+        darkSamples += 1;
+      }
+    }
+
+    if (
+      darkSamples >=
+      requiredDarkSamples
+    ) {
+
+      return startY + localY;
+    }
+  }
+
+  return null;
+}
+
+
+function clearSignatureCenter(
+  targetCtx,
+  targetCanvas,
+  signatureTop
+) {
+
+  if (signatureTop === null) {
+
+    return;
+  }
+
+  /*
+    Remove somente o número que a versão
+    anterior escreveu dentro da assinatura.
+
+    Mantém o texto "Nome Recebedor" e todas
+    as linhas da tabela intactos.
+  */
+  const clearX =
+    Math.round(
+      targetCanvas.width * 0.38
+    );
+
+  const clearY =
+    signatureTop +
+    Math.max(
+      2,
+      Math.round(
+        targetCanvas.height * 0.004
+      )
+    );
+
+  const clearWidth =
+    Math.round(
+      targetCanvas.width * 0.24
+    );
+
+  const clearHeight =
+    Math.max(
+      1,
+      Math.round(
+        targetCanvas.height * 0.025
+      )
+    );
+
+  targetCtx.fillStyle =
+    '#ffffff';
+
+  targetCtx.fillRect(
+    clearX,
+    clearY,
+    clearWidth,
+    clearHeight
+  );
+}
+
 function drawBarcodeField(
   targetCtx,
   targetCanvas,
@@ -1532,24 +1676,56 @@ function drawBarcodeField(
     );
 
 
-  const fieldY =
-    Math.round(
-      targetCanvas.height *
-      BARCODE_NUMBER_FIELD.y
+  const signatureTop =
+    findSignatureTop(
+      targetCtx,
+      targetCanvas
     );
+
+
+  let fieldHeight =
+    Math.max(
+      8,
+      Math.round(
+        targetCanvas.height *
+        BARCODE_NUMBER_FIELD.height
+      )
+    );
+
+
+  let fieldY;
+
+
+  if (signatureTop !== null) {
+
+    const borderMargin =
+      Math.max(
+        2,
+        Math.round(
+          targetCanvas.height *
+          0.004
+        )
+      );
+
+    fieldY =
+      signatureTop -
+      borderMargin -
+      fieldHeight;
+
+  } else {
+
+    fieldY =
+      Math.round(
+        targetCanvas.height *
+        BARCODE_NUMBER_FIELD.y
+      );
+  }
 
 
   const fieldWidth =
     Math.round(
       targetCanvas.width *
       BARCODE_NUMBER_FIELD.width
-    );
-
-
-  const fieldHeight =
-    Math.round(
-      targetCanvas.height *
-      BARCODE_NUMBER_FIELD.height
     );
 
 
@@ -1571,6 +1747,13 @@ function drawBarcodeField(
 
 
   targetCtx.save();
+
+
+  clearSignatureCenter(
+    targetCtx,
+    targetCanvas,
+    signatureTop
+  );
 
 
   /*
